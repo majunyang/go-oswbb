@@ -1,0 +1,8 @@
+#二进制文件
+bin/
+
+#data sqlite file
+data/
+
+#上传文件
+uploads/

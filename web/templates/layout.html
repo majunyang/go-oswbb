@@ -1,0 +1,59 @@
+{{define "layout.html"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSWBBGraph - OSWatcher 数据分析</title>
+    <link href="/static/css/vendor/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/fontawesome.min.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body>
+    <div class="d-flex">
+        <!-- Sidebar -->
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h4><i class="fas fa-chart-line"></i> OSWBBGraph</h4>
+                <button id="sidebarToggle" class="btn btn-sm btn-outline-light">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+            <ul class="nav flex-column">
+                <li class="nav-item">
+                    <a class="nav-link" href="/"><i class="fas fa-home"></i> <span>首页</span></a>
+                </li>
+                <li class="nav-item" id="nav-data" style="display:none;">
+                    <a class="nav-link" href="#" id="nav-vmstat"><i class="fas fa-microchip"></i> <span>VMstat</span></a>
+                </li>
+                <li class="nav-item" id="nav-iostat-link" style="display:none;">
+                    <a class="nav-link" href="#" id="nav-iostat"><i class="fas fa-hdd"></i> <span>IOstat</span></a>
+                </li>
+                <li class="nav-item" id="nav-ifconfig-link" style="display:none;">
+                    <a class="nav-link" href="#" id="nav-ifconfig"><i class="fas fa-network-wired"></i> <span>Ifconfig</span></a>
+                </li>
+                <li class="nav-item" id="nav-mpstat-link" style="display:none;">
+                    <a class="nav-link" href="#" id="nav-mpstat"><i class="fas fa-microchip"></i> <span>MPstat</span></a>
+                </li>
+                <li class="nav-item" id="nav-meminfo-link" style="display:none;">
+                    <a class="nav-link" href="#" id="nav-meminfo"><i class="fas fa-memory"></i> <span>MemInfo</span></a>
+                </li>
+                <li class="nav-item" id="nav-top-link" style="display:none;">
+                    <a class="nav-link" href="#" id="nav-top"><i class="fas fa-tasks"></i> <span>Top</span></a>
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content -->
+        <div id="mainContent" class="main-content flex-grow-1">
+            {{template "content" .}}
+        </div>
+    </div>
+
+    <script src="/static/js/vendor/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/vendor/echarts.min.js"></script>
+    <script src="/static/js/app.js"></script>
+    {{template "scripts" .}}
+</body>
+</html>
+{{end}}

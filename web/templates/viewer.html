@@ -1,0 +1,227 @@
+{{define "content"}}
+<div class="container-fluid p-4">
+    <div class="row mb-3">
+        <div class="col d-flex align-items-center">
+            <a href="/" class="btn btn-outline-secondary btn-sm me-3"><i class="fas fa-arrow-left"></i> 返回</a>
+            <h4 id="pageTitle"><i class="fas fa-chart-line"></i> 数据查看</h4>
+        </div>
+    </div>
+
+    <!-- Time Range Filter -->
+    <div class="row mb-3">
+        <div class="col">
+            <div class="card">
+                <div class="card-body py-2">
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="text-muted"><i class="fas fa-clock"></i> 时间范围:</span>
+                        <input type="datetime-local" id="chartStartTime" class="form-control form-control-sm" style="width:auto" lang="zh-CN" step="60">
+                        <span class="text-muted">至</span>
+                        <input type="datetime-local" id="chartEndTime" class="form-control form-control-sm" style="width:auto" lang="zh-CN" step="60">
+                        <button id="applyTimeRange" class="btn btn-primary btn-sm"><i class="fas fa-filter"></i> 应用</button>
+                        <button id="resetTimeRange" class="btn btn-outline-secondary btn-sm"><i class="fas fa-undo"></i> 重置</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VMstat Charts -->
+    <div id="vmstatSection" style="display:none;">
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">CPU 使用率</div>
+                    <div class="card-body">
+                        <div id="chart-cpu" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">进程队列</div>
+                    <div class="card-body">
+                        <div id="chart-procs" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">内存</div>
+                    <div class="card-body">
+                        <div id="chart-memory" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">交换空间</div>
+                    <div class="card-body">
+                        <div id="chart-swap" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">I/O</div>
+                    <div class="card-body">
+                        <div id="chart-io" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">系统</div>
+                    <div class="card-body">
+                        <div id="chart-system" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MemInfo Charts -->
+    <div id="meminfoSection" style="display:none;">
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">内存概览</div>
+                    <div class="card-body">
+                        <div id="chart-meminfo-memory" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">交换空间</div>
+                    <div class="card-body">
+                        <div id="chart-meminfo-swap" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">内存详情</div>
+                    <div class="card-body">
+                        <div id="chart-meminfo-detail" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">HugePages</div>
+                    <div class="card-body">
+                        <div id="chart-meminfo-hugepages" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Charts -->
+    <div id="topSection" style="display:none;">
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">系统负载</div>
+                    <div class="card-body">
+                        <div id="chart-top-load" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">任务统计</div>
+                    <div class="card-body">
+                        <div id="chart-top-tasks" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">CPU 使用率</div>
+                    <div class="card-body">
+                        <div id="chart-top-cpu" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card chart-card">
+                    <div class="card-header">内存使用</div>
+                    <div class="card-body">
+                        <div id="chart-top-memory" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card chart-card">
+                    <div class="card-header">Top 进程 (按CPU排序)</div>
+                    <div class="card-body">
+                        <div id="chart-top-topcpu" class="chart-container-lg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Single Chart Section (iostat/ifconfig/mpstat) -->
+    <div id="singleChartSection" style="display:none;">
+        <div class="row mb-3">
+            <div class="col">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-3">
+                                <label class="form-label">指标类型</label>
+                                <select id="metricSelect" class="form-select form-select-sm"></select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label" id="entityLabel">筛选</label>
+                                <div class="mb-1">
+                                    <label class="entity-checkbox entity-checkbox-all">
+                                        <input type="checkbox" id="selectAllEntities" checked> <strong>全选</strong>
+                                    </label>
+                                </div>
+                                <div id="entityCheckboxes" class="d-flex flex-wrap gap-2"></div>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">&nbsp;</label>
+                                <button id="applyFilter" class="btn btn-primary btn-sm d-block w-100">
+                                    <i class="fas fa-filter"></i> 应用筛选
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col">
+                <div class="card chart-card">
+                    <div class="card-body">
+                        <div id="chart-main" class="chart-container-lg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{{end}}
+
+{{define "scripts"}}
+<script>
+    const TABLE_TYPE = "{{.TableType}}";
+    const TABLE_NAME = "{{.Table}}";
+</script>
+<script src="/static/js/viewer.js"></script>
+{{end}}
