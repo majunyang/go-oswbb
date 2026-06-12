@@ -1,6 +1,8 @@
 #二进制文件
-bin/
-
+bin/data
+bin/uploads
+bin/go-oswbb
+bin/go-oswbb.exe
 #data sqlite file
 data/
 
