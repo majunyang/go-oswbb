@@ -18,9 +18,15 @@
 ### 下载编译
 
 ```bash
-git clone https://github.com/your-username/go-oswbb.git
+git clone https://github.com/majunyang/go-oswbb.git
 cd go-oswbb
-go build -o go-oswbb.exe .
+#编译windows环境二进制文件 
+$env:CGO_ENABLED = "0";$env:GOOS = "windows";$env:GOARCH = "amd64"
+go build -o bin/go-oswbb.exe .
+
+#编译linux环境二进制文件 
+$env:CGO_ENABLED = "0";$env:GOOS = "linux";$env:GOARCH = "amd64"
+go build -o bin/go-oswbb .
 ```
 
 ### 启动方式
@@ -205,7 +211,7 @@ go-oswbb.exe -archive /path/to/archive -retention-days 0
 ## OSWatcher 归档目录结构
 
 ```
-archive_partial/
+archive/
 ├── oswvmstat/          # VMstat 数据
 │   ├── his_vmstat_21.12.31.0100.dat
 │   └── his_vmstat_21.12.31.0100.dat.gz
