@@ -471,7 +471,9 @@ function loadEntityList(endpoint, entityKey) {
         .then(data => {
             if (data.success) {
                 const entities = data.data[entityKey] || [];
-                const container = document.getElementById('entityCheckboxes');
+                const oldContainer = document.getElementById('entityCheckboxes');
+                const container = oldContainer.cloneNode(false);
+                oldContainer.parentNode.replaceChild(container, oldContainer);
                 container.innerHTML = '';
 
                 entities.forEach((entity, i) => {
@@ -482,39 +484,75 @@ function loadEntityList(endpoint, entityKey) {
                 });
 
                 // Setup select all/deselect all
-                setupSelectAll(entities.length);
+                setupSelectAll(entityKey);
             }
         })
         .catch(err => console.error('Failed to load entities:', err));
 }
 
-function setupSelectAll(entityCount) {
+function setupSelectAll(entityKey) {
     const selectAllCb = document.getElementById('selectAllEntities');
+    const selectDmCb = document.getElementById('selectDmEntities');
     if (!selectAllCb) return;
 
     // Reset to checked
     selectAllCb.checked = true;
+    if (selectDmCb) selectDmCb.checked = true;
 
-    // Remove old listener by cloning
+    // Remove old listeners by cloning
     const newSelectAll = selectAllCb.cloneNode(true);
     selectAllCb.parentNode.replaceChild(newSelectAll, selectAllCb);
+    const newSelectDm = selectDmCb ? selectDmCb.cloneNode(true) : null;
+    if (selectDmCb) {
+        selectDmCb.parentNode.replaceChild(newSelectDm, selectDmCb);
+    }
+
+    const getAllCheckboxes = () => Array.from(document.querySelectorAll('#entityCheckboxes input[type="checkbox"]'));
+    const getDmCheckboxes = () => getAllCheckboxes().filter(cb => cb.value.startsWith('dm-'));
+    const showDmControl = entityKey === 'devices' && getDmCheckboxes().length > 0;
+    if (newSelectDm) {
+        newSelectDm.closest('label').style.display = showDmControl ? '' : 'none';
+    }
+    const setGroupState = (control, checkboxes) => {
+        if (!control) return;
+        const checkedCount = checkboxes.filter(cb => cb.checked).length;
+        control.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+        control.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+        control.disabled = checkboxes.length === 0;
+    };
+    const updateBulkStates = () => {
+        const allCbs = getAllCheckboxes();
+        setGroupState(newSelectAll, allCbs);
+        setGroupState(newSelectDm, getDmCheckboxes());
+    };
 
     // Select all toggle
     newSelectAll.addEventListener('change', function() {
         const checked = this.checked;
-        const checkboxes = document.querySelectorAll('#entityCheckboxes input[type="checkbox"]');
+        const checkboxes = getAllCheckboxes();
         checkboxes.forEach(cb => cb.checked = checked);
+        updateBulkStates();
     });
+
+    // Select only dm-* devices.
+    if (newSelectDm && showDmControl) {
+        newSelectDm.addEventListener('change', function() {
+            const checked = this.checked;
+            const checkboxes = getDmCheckboxes();
+            checkboxes.forEach(cb => cb.checked = checked);
+            updateBulkStates();
+        });
+    }
 
     // Update select all state when individual checkbox changes
     const container = document.getElementById('entityCheckboxes');
     container.addEventListener('change', function(e) {
         if (e.target.type === 'checkbox') {
-            const allCbs = document.querySelectorAll('#entityCheckboxes input[type="checkbox"]');
-            const checkedCbs = document.querySelectorAll('#entityCheckboxes input[type="checkbox"]:checked');
-            newSelectAll.checked = allCbs.length === checkedCbs.length;
+            updateBulkStates();
         }
     });
+
+    updateBulkStates();
 }
 
 function loadSingleChart(chartEndpoint, type, entityKey) {
