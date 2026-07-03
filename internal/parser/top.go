@@ -88,36 +88,30 @@ func (p *TopParser) ParseContent(content string) (*model.TopParsedData, error) {
 		}
 
 		// Parse Cpu(s) line
-		if strings.HasPrefix(line, "Cpu(s):") {
-			if m := topCpuRe.FindStringSubmatch(line); m != nil {
-				currentSnapshot.CpuUs, _ = strconv.ParseFloat(m[1], 64)
-				currentSnapshot.CpuSy, _ = strconv.ParseFloat(m[2], 64)
-				currentSnapshot.CpuNi, _ = strconv.ParseFloat(m[3], 64)
-				currentSnapshot.CpuId, _ = strconv.ParseFloat(m[4], 64)
-				currentSnapshot.CpuWa, _ = strconv.ParseFloat(m[5], 64)
-			}
+		if strings.Contains(line, "Cpu(s):") {
+			currentSnapshot.CpuUs = extractCpuVal(line, "us")
+			currentSnapshot.CpuSy = extractCpuVal(line, "sy")
+			currentSnapshot.CpuNi = extractCpuVal(line, "ni")
+			currentSnapshot.CpuId = extractCpuVal(line, "id")
+			currentSnapshot.CpuWa = extractCpuVal(line, "wa")
 			inProcSection = false
 			continue
 		}
 
 		// Parse Mem line
-		if strings.HasPrefix(line, "Mem:") {
-			if m := topMemRe.FindStringSubmatch(line); m != nil {
-				currentSnapshot.MemTotal, _ = strconv.ParseInt(m[1], 10, 64)
-				currentSnapshot.MemUsed, _ = strconv.ParseInt(m[2], 10, 64)
-				currentSnapshot.MemFree, _ = strconv.ParseInt(m[3], 10, 64)
-			}
+		if strings.Contains(line, "Mem") && (strings.Contains(line, "total") || strings.Contains(line, "used")) {
+			currentSnapshot.MemTotal = int64(extractMemVal(line, "total"))
+			currentSnapshot.MemUsed = int64(extractMemVal(line, "used"))
+			currentSnapshot.MemFree = int64(extractMemVal(line, "free"))
 			inProcSection = false
 			continue
 		}
 
 		// Parse Swap line
-		if strings.HasPrefix(line, "Swap:") {
-			if m := topMemRe.FindStringSubmatch(line); m != nil {
-				currentSnapshot.SwapTotal, _ = strconv.ParseInt(m[1], 10, 64)
-				currentSnapshot.SwapUsed, _ = strconv.ParseInt(m[2], 10, 64)
-				currentSnapshot.SwapFree, _ = strconv.ParseInt(m[3], 10, 64)
-			}
+		if strings.Contains(line, "Swap") && (strings.Contains(line, "total") || strings.Contains(line, "used")) {
+			currentSnapshot.SwapTotal = int64(extractMemVal(line, "total"))
+			currentSnapshot.SwapUsed = int64(extractMemVal(line, "used"))
+			currentSnapshot.SwapFree = int64(extractMemVal(line, "free"))
 			inProcSection = false
 			continue
 		}
@@ -309,4 +303,35 @@ func extractTopField(data []model.TopSnapshot, field string) []float64 {
 		}
 	}
 	return r
+}
+
+func extractCpuVal(line, suffix string) float64 {
+	re := regexp.MustCompile(`([\d.]+)\s*%?\s*` + suffix)
+	m := re.FindStringSubmatch(line)
+	if m != nil {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		return v
+	}
+	return 0
+}
+
+func extractMemVal(line, suffix string) float64 {
+	re := regexp.MustCompile(`([\d.]+)[+kKmM]?\s*` + suffix)
+	m := re.FindStringSubmatch(line)
+	if m != nil {
+		v, _ := strconv.ParseFloat(m[1], 64)
+		
+		multiplier := 1.0
+		if strings.Contains(line, "KiB") || strings.Contains(line, "k ") || strings.Contains(line, "k\t") {
+			multiplier = 1.0
+		} else if strings.Contains(line, "MiB") || strings.Contains(line, "m ") {
+			multiplier = 1024.0
+		} else if strings.Contains(line, "GiB") || strings.Contains(line, "g ") {
+			multiplier = 1024.0 * 1024.0
+		} else {
+			multiplier = 1.0
+		}
+		return v * multiplier
+	}
+	return 0
 }

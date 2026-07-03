@@ -11,7 +11,24 @@ import (
 	"go-oswbb/internal/model"
 )
 
-var ifaceRe = regexp.MustCompile(`^(\d+):\s+(\S+?):\s+<.*>`)
+// regex rules for interface detection
+var (
+	ifaceRe1 = regexp.MustCompile(`^(\d+):\s+(\S+?):\s+<.*>`)             // ip -s link
+	ifaceRe2 = regexp.MustCompile(`^([a-zA-Z0-9_\-\.:]+):\s+flags=\d+<.*>`) // new ifconfig
+	ifaceRe3 = regexp.MustCompile(`^([a-zA-Z0-9_\-\.:]+)\s+Link encap:`)   // old ifconfig
+)
+
+// regex rules for data parsing in traditional ifconfig output
+var (
+	rxPacketsNewRe = regexp.MustCompile(`^RX\s+packets\s+(\d+)\s+bytes\s+(\d+)`)
+	rxErrorsNewRe  = regexp.MustCompile(`^RX\s+errors\s+(\d+)\s+dropped\s+(\d+)`)
+	txPacketsNewRe = regexp.MustCompile(`^TX\s+packets\s+(\d+)\s+bytes\s+(\d+)`)
+	txErrorsNewRe  = regexp.MustCompile(`^TX\s+errors\s+(\d+)\s+dropped\s+(\d+)`)
+
+	rxPacketsOldRe = regexp.MustCompile(`^RX\s+packets:(\d+)\s+errors:(\d+)\s+dropped:(\d+)`)
+	txPacketsOldRe = regexp.MustCompile(`^TX\s+packets:(\d+)\s+errors:(\d+)\s+dropped:(\d+)`)
+	bytesOldRe     = regexp.MustCompile(`RX\s+bytes:(\d+).*?TX\s+bytes:(\d+)`)
+)
 
 type IfconfigParser struct{}
 
@@ -54,9 +71,18 @@ func (p *IfconfigParser) ParseContent(content string) (*model.IfconfigParsedData
 			continue
 		}
 
-		// Parse interface line (e.g., "10: team0: <BROADCAST,MULTICAST,UP,LOWER_UP>")
-		if m := ifaceRe.FindStringSubmatch(line); m != nil {
-			currentInterface = strings.SplitN(m[2], "@", 2)[0]
+		// Parse interface line
+		var matchIface string
+		if m := ifaceRe1.FindStringSubmatch(line); m != nil {
+			matchIface = strings.SplitN(m[2], "@", 2)[0]
+		} else if m := ifaceRe2.FindStringSubmatch(line); m != nil {
+			matchIface = m[1]
+		} else if m := ifaceRe3.FindStringSubmatch(line); m != nil {
+			matchIface = m[1]
+		}
+
+		if matchIface != "" {
+			currentInterface = matchIface
 			if currentInterface == "lo" {
 				currentInterface = ""
 			}
@@ -70,6 +96,83 @@ func (p *IfconfigParser) ParseContent(content string) (*model.IfconfigParsedData
 			continue
 		}
 
+		// --- Traditional ifconfig Format Parsers ---
+		// 1. New RX packets
+		if m := rxPacketsNewRe.FindStringSubmatch(line); m != nil {
+			rxPkts, _ := strconv.ParseInt(m[1], 10, 64)
+			rxBytes, _ := strconv.ParseInt(m[2], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.RxPackets = rxPkts
+				r.RxBytes = rxBytes
+			})
+			continue
+		}
+		// 2. New RX errors
+		if m := rxErrorsNewRe.FindStringSubmatch(line); m != nil {
+			rxErr, _ := strconv.ParseInt(m[1], 10, 64)
+			rxDrop, _ := strconv.ParseInt(m[2], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.RxErrors = rxErr
+				r.RxDropped = rxDrop
+			})
+			continue
+		}
+		// 3. New TX packets
+		if m := txPacketsNewRe.FindStringSubmatch(line); m != nil {
+			txPkts, _ := strconv.ParseInt(m[1], 10, 64)
+			txBytes, _ := strconv.ParseInt(m[2], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.TxPackets = txPkts
+				r.TxBytes = txBytes
+			})
+			continue
+		}
+		// 4. New TX errors
+		if m := txErrorsNewRe.FindStringSubmatch(line); m != nil {
+			txErr, _ := strconv.ParseInt(m[1], 10, 64)
+			txDrop, _ := strconv.ParseInt(m[2], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.TxErrors = txErr
+				r.TxDropped = txDrop
+			})
+			continue
+		}
+		// 5. Old RX packets
+		if m := rxPacketsOldRe.FindStringSubmatch(line); m != nil {
+			rxPkts, _ := strconv.ParseInt(m[1], 10, 64)
+			rxErr, _ := strconv.ParseInt(m[2], 10, 64)
+			rxDrop, _ := strconv.ParseInt(m[3], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.RxPackets = rxPkts
+				r.RxErrors = rxErr
+				r.RxDropped = rxDrop
+			})
+			continue
+		}
+		// 6. Old TX packets
+		if m := txPacketsOldRe.FindStringSubmatch(line); m != nil {
+			txPkts, _ := strconv.ParseInt(m[1], 10, 64)
+			txErr, _ := strconv.ParseInt(m[2], 10, 64)
+			txDrop, _ := strconv.ParseInt(m[3], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.TxPackets = txPkts
+				r.TxErrors = txErr
+				r.TxDropped = txDrop
+			})
+			continue
+		}
+		// 7. Old RX/TX bytes
+		if m := bytesOldRe.FindStringSubmatch(line); m != nil {
+			rxBytes, _ := strconv.ParseInt(m[1], 10, 64)
+			txBytes, _ := strconv.ParseInt(m[2], 10, 64)
+			updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+				r.RxBytes = rxBytes
+				r.TxBytes = txBytes
+			})
+			continue
+		}
+
+		// --- Original ip -s link Format Parsers ---
 		// RX statistics header
 		if strings.HasPrefix(line, "RX:") && strings.Contains(line, "bytes") {
 			expectingRxData = true
@@ -93,45 +196,19 @@ func (p *IfconfigParser) ParseContent(content string) (*model.IfconfigParsedData
 		if expectingRxData {
 			values := parseIntValues(line)
 			if len(values) >= 2 {
-				// Find or create record for this timestamp
-				records := result.Interfaces[currentInterface]
-				found := false
-				for i := range records {
-					if records[i].Timestamp.Equal(currentTimestamp) {
-						records[i].RxBytes = values[0]
-						records[i].RxPackets = values[1]
-						if len(values) > 2 {
-							records[i].RxErrors = values[2]
-						}
-						if len(values) > 3 {
-							records[i].RxDropped = values[3]
-						}
-						if len(values) > 4 {
-							records[i].RxMissed = values[4]
-						}
-						found = true
-						break
-					}
-				}
-				if !found {
-					record := model.IfconfigRecord{
-						Timestamp: currentTimestamp,
-						Interface: currentInterface,
-						RxBytes:   values[0],
-						RxPackets: values[1],
-					}
+				updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+					r.RxBytes = values[0]
+					r.RxPackets = values[1]
 					if len(values) > 2 {
-						record.RxErrors = values[2]
+						r.RxErrors = values[2]
 					}
 					if len(values) > 3 {
-						record.RxDropped = values[3]
+						r.RxDropped = values[3]
 					}
 					if len(values) > 4 {
-						record.RxMissed = values[4]
+						r.RxMissed = values[4]
 					}
-					records = append(records, record)
-				}
-				result.Interfaces[currentInterface] = records
+				})
 				gotRxData = true
 			}
 			expectingRxData = false
@@ -142,21 +219,16 @@ func (p *IfconfigParser) ParseContent(content string) (*model.IfconfigParsedData
 		if expectingTxData {
 			values := parseIntValues(line)
 			if len(values) >= 2 && gotRxData {
-				records := result.Interfaces[currentInterface]
-				for i := range records {
-					if records[i].Timestamp.Equal(currentTimestamp) {
-						records[i].TxBytes = values[0]
-						records[i].TxPackets = values[1]
-						if len(values) > 2 {
-							records[i].TxErrors = values[2]
-						}
-						if len(values) > 3 {
-							records[i].TxDropped = values[3]
-						}
-						break
+				updateRecord(result, currentInterface, currentTimestamp, func(r *model.IfconfigRecord) {
+					r.TxBytes = values[0]
+					r.TxPackets = values[1]
+					if len(values) > 2 {
+						r.TxErrors = values[2]
 					}
-				}
-				result.Interfaces[currentInterface] = records
+					if len(values) > 3 {
+						r.TxDropped = values[3]
+					}
+				})
 			}
 			expectingTxData = false
 			continue
@@ -189,6 +261,30 @@ func parseIntValues(line string) []int64 {
 		}
 	}
 	return values
+}
+
+func updateRecord(result *model.IfconfigParsedData, iface string, ts time.Time, updateFn func(*model.IfconfigRecord)) {
+	if iface == "" || ts.IsZero() {
+		return
+	}
+	records := result.Interfaces[iface]
+	found := false
+	for i := range records {
+		if records[i].Timestamp.Equal(ts) {
+			updateFn(&records[i])
+			found = true
+			break
+		}
+	}
+	if !found {
+		record := model.IfconfigRecord{
+			Timestamp: ts,
+			Interface: iface,
+		}
+		updateFn(&record)
+		records = append(records, record)
+	}
+	result.Interfaces[iface] = records
 }
 
 // CalculateThroughput computes per-second rates by diffing consecutive snapshots.

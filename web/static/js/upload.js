@@ -62,22 +62,25 @@ function handleUpload(file) {
     xhr.upload.addEventListener('progress', function(e) {
         if (e.lengthComputable) {
             const percent = Math.round((e.loaded / e.total) * 100);
-            progressBar.style.width = percent + '%';
-            progressBar.textContent = percent + '%';
-            uploadStatus.textContent = '上传中... ' + formatFileSize(e.loaded) + ' / ' + formatFileSize(e.total);
+            if (percent === 100) {
+                if (!importSimInterval) {
+                    uploadStatus.textContent = '文件已成功上传，正在解压和解析导入数据库，请耐心稍候...';
+                    startImportSimulation(progressBar);
+                }
+            } else {
+                progressBar.style.width = percent + '%';
+                progressBar.textContent = percent + '%';
+                uploadStatus.textContent = '上传中... ' + formatFileSize(e.loaded) + ' / ' + formatFileSize(e.total);
+            }
         }
     });
 
     xhr.addEventListener('load', function() {
+        stopImportSimulation(xhr.status === 200);
         if (xhr.status === 200) {
             const response = JSON.parse(xhr.responseText);
             if (response.success) {
-                progressBar.style.width = '100%';
-                progressBar.textContent = '100%';
-                progressBar.classList.remove('progress-bar-animated');
-                progressBar.classList.add('bg-success');
                 uploadStatus.textContent = '处理完成!';
-
                 showUploadResult(response.data);
                 loadStatistics();
                 loadSidebarNav();
@@ -90,11 +93,57 @@ function handleUpload(file) {
     });
 
     xhr.addEventListener('error', function() {
+        stopImportSimulation(false);
         showUploadError('网络错误');
     });
 
     xhr.open('POST', '/api/upload/archive');
     xhr.send(formData);
+}
+
+let importSimInterval = null;
+
+function startImportSimulation(progressBar) {
+    if (importSimInterval) {
+        clearInterval(importSimInterval);
+    }
+    
+    let currentPercent = 0;
+    progressBar.style.width = '0%';
+    progressBar.textContent = '准备解析...';
+    progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+    progressBar.classList.remove('bg-success', 'bg-danger');
+
+    importSimInterval = setInterval(() => {
+        if (currentPercent < 50) {
+            currentPercent += 3;
+        } else if (currentPercent < 85) {
+            currentPercent += 1.5;
+        } else if (currentPercent < 98) {
+            currentPercent += 0.5;
+        } else {
+            clearInterval(importSimInterval);
+            importSimInterval = null;
+        }
+        progressBar.style.width = currentPercent + '%';
+        progressBar.textContent = Math.floor(currentPercent) + '% (解析中)';
+    }, 250);
+}
+
+function stopImportSimulation(success) {
+    if (importSimInterval) {
+        clearInterval(importSimInterval);
+        importSimInterval = null;
+    }
+    const progressBar = document.getElementById('progressBar');
+    progressBar.classList.remove('progress-bar-striped', 'progress-bar-animated');
+    if (success) {
+        progressBar.style.width = '100%';
+        progressBar.textContent = '100%';
+        progressBar.classList.add('bg-success');
+    } else {
+        progressBar.classList.add('bg-danger');
+    }
 }
 
 function showUploadResult(data) {
@@ -130,6 +179,10 @@ function showUploadError(message) {
 }
 
 function resetUpload() {
+    if (importSimInterval) {
+        clearInterval(importSimInterval);
+        importSimInterval = null;
+    }
     document.getElementById('uploadZone').style.display = 'block';
     document.getElementById('uploadProgress').style.display = 'none';
     document.getElementById('uploadResult').style.display = 'none';
@@ -139,7 +192,7 @@ function resetUpload() {
     progressBar.style.width = '0%';
     progressBar.textContent = '0%';
     progressBar.classList.add('progress-bar-animated');
-    progressBar.classList.remove('bg-success', 'bg-danger');
+    progressBar.classList.remove('bg-success', 'bg-danger', 'progress-bar-striped');
 }
 
 function loadStatistics() {
@@ -200,9 +253,9 @@ function renderDataTable(tables) {
         html += '<td>';
 
         if (tableType) {
-            html += '<a href="/viewer?table=' + encodeURIComponent(name) + '" class="btn btn-sm btn-outline-primary me-1"><i class="fas fa-chart-line"></i> 图表</a>';
+            html += '<a href="/viewer?table=' + encodeURIComponent(name) + '&mode=chart" class="btn btn-sm btn-outline-primary me-1"><i class="fas fa-chart-line"></i> 图表</a>';
         }
-        html += '<a href="/viewer?table=' + encodeURIComponent(name) + '" class="btn btn-sm btn-outline-secondary"><i class="fas fa-table"></i> 数据</a>';
+        html += '<a href="/viewer?table=' + encodeURIComponent(name) + '&mode=data" class="btn btn-sm btn-outline-secondary"><i class="fas fa-table"></i> 数据</a>';
         html += '</td>';
         html += '</tr>';
     }

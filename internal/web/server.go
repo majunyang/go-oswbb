@@ -59,6 +59,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/chart/top/{metric}", s.handleTopChart)
 	s.mux.HandleFunc("GET /api/chart/types", s.handleChartTypes)
 	s.mux.HandleFunc("GET /api/archive-path", s.handleArchivePath)
+	s.mux.HandleFunc("GET /api/analysis/oswps", s.handleOswpsAnalysis)
 }
 
 func (s *Server) Handler() http.Handler {

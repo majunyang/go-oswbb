@@ -233,3 +233,54 @@ type TopParsedData struct {
 	Snapshots  []TopSnapshot
 	TopProcs   []TopProcess
 }
+
+// Oswps
+
+type PsRecord struct {
+	Timestamp time.Time `json:"timestamp"`
+	User      string    `json:"user"`
+	PID       int       `json:"pid"`
+	PPID      int       `json:"ppid"`
+	PRI       int       `json:"pri"`
+	CPU       float64   `json:"cpu"`
+	Mem       float64   `json:"mem"`
+	VSZ       int64     `json:"vsz"`
+	RSS       int64     `json:"rss"`
+	Wchan     string    `json:"wchan"`
+	State     string    `json:"state"`
+	Command   string    `json:"command"`
+}
+
+type HighResourceProc struct {
+	Command   string  `json:"command"`
+	ShortName string  `json:"shortName"`
+	MaxVal    float64 `json:"maxVal"`
+	AvgVal    float64 `json:"avgVal"`
+}
+
+type AbnormalStateProc struct {
+	FirstTimestamp string `json:"firstTimestamp"`
+	LastTimestamp  string `json:"lastTimestamp"`
+	PID            int    `json:"pid"`
+	PPID           int    `json:"ppid"`
+	User           string `json:"user"`
+	State          string `json:"state"`
+	Command        string `json:"command"`
+	Count          int    `json:"count"`
+}
+
+type ForkRateProc struct {
+	Command   string `json:"command"`
+	ShortName string `json:"shortName"`
+	ForkCount int    `json:"forkCount"`
+}
+
+type OswpsAnalysisResult struct {
+	TotalSnapshots int                 `json:"totalSnapshots"`
+	ZombieCount    int                 `json:"zombieCount"`
+	DStateCount    int                 `json:"dStateCount"`
+	HighCpuProcs   []HighResourceProc  `json:"highCpuProcs"`
+	HighMemProcs   []HighResourceProc  `json:"highMemProcs"`
+	AbnormalProcs  []AbnormalStateProc `json:"abnormalProcs"`
+	ForkBombProcs  []ForkRateProc      `json:"forkBombProcs"`
+}

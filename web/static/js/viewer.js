@@ -6,21 +6,37 @@ let allChartData = {}; // Store all fetched chart data for time range filtering
 
 document.addEventListener('DOMContentLoaded', function() {
     // Set page title
-    document.getElementById('pageTitle').innerHTML = '<i class="fas fa-chart-line"></i> ' + escapeHtml(TABLE_NAME);
+    const modeName = VIEW_MODE === 'data' ? '数据明细' : '智能分析看板';
+    document.getElementById('pageTitle').innerHTML = '<i class="fas fa-chart-line"></i> ' + escapeHtml(TABLE_NAME) + ' - ' + modeName;
 
-    // Initialize based on table type
-    if (TABLE_TYPE === 'vmstat') {
-        loadVmstatCharts();
-    } else if (TABLE_TYPE === 'iostat') {
-        initSingleChart('iostat');
-    } else if (TABLE_TYPE === 'ifconfig') {
-        initSingleChart('ifconfig');
-    } else if (TABLE_TYPE === 'mpstat') {
-        initSingleChart('mpstat');
-    } else if (TABLE_TYPE === 'meminfo') {
-        loadMeminfoCharts();
-    } else if (TABLE_TYPE === 'top') {
-        loadTopCharts();
+    // Show switch tabs if viewing oswps
+    if (TABLE_NAME === 'oswps') {
+        document.getElementById('oswpsViewTabs').style.display = 'block';
+        if (VIEW_MODE === 'data') {
+            document.getElementById('tab-btn-analysis').classList.remove('active');
+            document.getElementById('tab-btn-rawdata').classList.add('active');
+        }
+    }
+
+    // Initialize based on table type and view mode
+    if (TABLE_NAME === 'oswps' && VIEW_MODE !== 'data') {
+        loadOswpsAnalysis();
+    } else if (TABLE_TYPE === 'generic' || TABLE_TYPE === '' || VIEW_MODE === 'data') {
+        loadDataGrid(1);
+    } else {
+        if (TABLE_TYPE === 'vmstat') {
+            loadVmstatCharts();
+        } else if (TABLE_TYPE === 'iostat') {
+            initSingleChart('iostat');
+        } else if (TABLE_TYPE === 'ifconfig') {
+            initSingleChart('ifconfig');
+        } else if (TABLE_TYPE === 'mpstat') {
+            initSingleChart('mpstat');
+        } else if (TABLE_TYPE === 'meminfo') {
+            loadMeminfoCharts();
+        } else if (TABLE_TYPE === 'top') {
+            loadTopCharts();
+        }
     }
 
     // Time range filter buttons
@@ -83,7 +99,8 @@ function convertToDatetimeLocal(str, year) {
 }
 
 // Filter chart data by time range
-function filterChartData(chartData, startTime, endTime) {
+function filterChartData(chartData, startTime, endTime, chartId) {
+    if (chartId === 'chart-top-topcpu') return chartData;
     if (!chartData || !chartData.categories) return chartData;
 
     const startStr = convertToDatetimeLocal(startTime, new Date().getFullYear());
@@ -127,6 +144,15 @@ function filterChartData(chartData, startTime, endTime) {
 
 // Apply time range filter to all charts
 function applyTimeRangeFilter() {
+    if (document.getElementById('dataGridSection').style.display === 'block') {
+        loadDataGrid(1);
+        return;
+    }
+    if (document.getElementById('oswpsAnalysisSection').style.display === 'block') {
+        loadOswpsAnalysis();
+        return;
+    }
+
     const startTime = document.getElementById('chartStartTime').value;
     const endTime = document.getElementById('chartEndTime').value;
 
@@ -136,7 +162,7 @@ function applyTimeRangeFilter() {
         const chartType = parts[0];
         const chartId = parts[1];
 
-        const filtered = filterChartData(allChartData[key], startTime, endTime);
+        const filtered = filterChartData(allChartData[key], startTime, endTime, chartId);
 
         if (chartType === 'bar') {
             renderBarChart(filtered, chartId);
@@ -150,6 +176,15 @@ function applyTimeRangeFilter() {
 function resetTimeRangeFilter() {
     document.getElementById('chartStartTime').value = '';
     document.getElementById('chartEndTime').value = '';
+
+    if (document.getElementById('dataGridSection').style.display === 'block') {
+        loadDataGrid(1);
+        return;
+    }
+    if (document.getElementById('oswpsAnalysisSection').style.display === 'block') {
+        loadOswpsAnalysis();
+        return;
+    }
 
     // Re-render all charts with full data
     Object.keys(allChartData).forEach(key => {
@@ -304,7 +339,11 @@ function loadTopCharts() {
                     const chartType = metric === 'topcpu' ? 'bar' : 'line';
                     allChartData[chartType + '|chart-top-' + metric] = data.data;
                     chartDataList.push(data.data);
-                    renderBarChart(data.data, 'chart-top-' + metric);
+                    if (chartType === 'bar') {
+                        renderBarChart(data.data, 'chart-top-' + metric);
+                    } else {
+                        renderEChart(data.data, 'chart-top-' + metric);
+                    }
 
                     if (Object.keys(allChartData).length === metrics.length) {
                         setDefaultTimeRange(chartDataList);
@@ -449,7 +488,7 @@ function initSingleChart(type) {
     });
 
     // Load entity list
-    loadEntityList(entityEndpoint, entityKey);
+    loadEntityList(entityEndpoint, entityKey, chartEndpoint, type);
 
     // Load chart on metric change
     metricSelect.addEventListener('change', function() {
@@ -460,12 +499,9 @@ function initSingleChart(type) {
     applyBtn.addEventListener('click', function() {
         loadSingleChart(chartEndpoint, type, entityKey);
     });
-
-    // Initial load
-    loadSingleChart(chartEndpoint, type, entityKey);
 }
 
-function loadEntityList(endpoint, entityKey) {
+function loadEntityList(endpoint, entityKey, chartEndpoint, type) {
     fetch(endpoint)
         .then(r => r.json())
         .then(data => {
@@ -479,12 +515,19 @@ function loadEntityList(endpoint, entityKey) {
                 entities.forEach((entity, i) => {
                     const label = document.createElement('label');
                     label.className = 'entity-checkbox';
-                    label.innerHTML = '<input type="checkbox" value="' + escapeHtml(entity) + '" checked> ' + escapeHtml(entity);
+                    let isChecked = true;
+                    if (entityKey === 'cpus') {
+                        isChecked = (entity === 'all');
+                    }
+                    label.innerHTML = '<input type="checkbox" value="' + escapeHtml(entity) + '"' + (isChecked ? ' checked' : '') + '> ' + escapeHtml(entity);
                     container.appendChild(label);
                 });
 
                 // Setup select all/deselect all
                 setupSelectAll(entityKey);
+
+                // Load initial chart after checkboxes are rendered
+                loadSingleChart(chartEndpoint, type, entityKey);
             }
         })
         .catch(err => console.error('Failed to load entities:', err));
@@ -578,4 +621,320 @@ function loadSingleChart(chartEndpoint, type, entityKey) {
             }
         })
         .catch(err => console.error('Failed to load chart:', err));
+}
+
+let currentGridPage = 1;
+const GRID_LIMIT = 100;
+
+function loadDataGrid(page) {
+    currentGridPage = page;
+    document.getElementById('vmstatSection').style.display = 'none';
+    document.getElementById('meminfoSection').style.display = 'none';
+    document.getElementById('topSection').style.display = 'none';
+    document.getElementById('singleChartSection').style.display = 'none';
+    document.getElementById('dataGridSection').style.display = 'block';
+
+    const startTime = document.getElementById('chartStartTime').value;
+    const endTime = document.getElementById('chartEndTime').value;
+
+    let url = `/api/data/${encodeURIComponent(TABLE_NAME)}?page=${page}&limit=${GRID_LIMIT}`;
+    if (startTime) url += `&startTime=${encodeURIComponent(startTime)}`;
+    if (endTime) url += `&endTime=${encodeURIComponent(endTime)}`;
+
+    const tbody = document.getElementById('dataGridBody');
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin"></i> 正在加载数据...</td></tr>';
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderDataGrid(data.data);
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-4">加载失败: ' + escapeHtml(data.message) + '</td></tr>';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-4">网络请求错误</td></tr>';
+        });
+}
+
+function renderDataGrid(data) {
+    const tbody = document.getElementById('dataGridBody');
+    const badge = document.getElementById('totalRecordsBadge');
+    const info = document.getElementById('pageRangeInfo');
+    const pagination = document.getElementById('paginationControls');
+
+    badge.textContent = `共 ${formatCount(data.total)} 条记录`;
+
+    if (!data.rows || data.rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">暂无匹配的数据明细</td></tr>';
+        info.textContent = '显示第 0 - 0 条，共 0 条';
+        pagination.innerHTML = '';
+        return;
+    }
+
+    let html = '';
+    data.rows.forEach(row => {
+        html += '<tr>';
+        html += `<td><span class="text-muted small">${row.line_no}</span></td>`;
+        html += `<td><span class="badge bg-light text-dark font-monospace">${escapeHtml(row.timestamp || '')}</span></td>`;
+        html += `<td><span class="text-secondary small font-monospace">${escapeHtml(row.host || '')}</span></td>`;
+        html += `<td><pre class="mb-0 text-dark font-monospace" style="white-space: pre-wrap; font-size: 12px; background: none; border: none; padding: 0; margin: 0; line-height: 1.4;">${escapeHtml(row.content || '')}</pre></td>`;
+        html += '</tr>';
+    });
+    tbody.innerHTML = html;
+
+    const startIdx = (data.page - 1) * data.limit + 1;
+    const endIdx = startIdx + data.rows.length - 1;
+    info.textContent = `显示第 ${startIdx} - ${endIdx} 条，共 ${data.total} 条`;
+
+    renderPagination(data.total, data.page, data.limit);
+}
+
+function renderPagination(total, currentPage, limit) {
+    const pagination = document.getElementById('paginationControls');
+    pagination.innerHTML = '';
+
+    const totalPages = Math.ceil(total / limit);
+    if (totalPages <= 1) return;
+
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    if (endPage - startPage + 1 < maxVisiblePages) {
+        startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    // Previous Page
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `<a class="page-link" href="#" aria-label="Previous"><span aria-hidden="true">&laquo;</span></a>`;
+    if (currentPage > 1) {
+        prevLi.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadDataGrid(currentPage - 1);
+        });
+    }
+    pagination.appendChild(prevLi);
+
+    // First Page + ellipsis if needed
+    if (startPage > 1) {
+        const firstLi = document.createElement('li');
+        firstLi.className = 'page-item';
+        firstLi.innerHTML = `<a class="page-link" href="#">1</a>`;
+        firstLi.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadDataGrid(1);
+        });
+        pagination.appendChild(firstLi);
+
+        if (startPage > 2) {
+            const ellipsisLi = document.createElement('li');
+            ellipsisLi.className = 'page-item disabled';
+            ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+            pagination.appendChild(ellipsisLi);
+        }
+    }
+
+    // Page Numbers
+    for (let i = startPage; i <= endPage; i++) {
+        const pageLi = document.createElement('li');
+        pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+        pageLi.innerHTML = `<a class="page-link" href="#">${i}</a>`;
+        pageLi.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadDataGrid(i);
+        });
+        pagination.appendChild(pageLi);
+    }
+
+    // Last Page + ellipsis if needed
+    if (endPage < totalPages) {
+        if (endPage < totalPages - 1) {
+            const ellipsisLi = document.createElement('li');
+            ellipsisLi.className = 'page-item disabled';
+            ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+            pagination.appendChild(ellipsisLi);
+        }
+
+        const lastLi = document.createElement('li');
+        lastLi.className = 'page-item';
+        lastLi.innerHTML = `<a class="page-link" href="#">${totalPages}</a>`;
+        lastLi.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadDataGrid(totalPages);
+        });
+        pagination.appendChild(lastLi);
+    }
+
+    // Next Page
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `<a class="page-link" href="#" aria-label="Next"><span aria-hidden="true">&raquo;</span></a>`;
+    if (currentPage < totalPages) {
+        nextLi.addEventListener('click', function(e) {
+            e.preventDefault();
+            loadDataGrid(currentPage + 1);
+        });
+    }
+    pagination.appendChild(nextLi);
+}
+
+function loadOswpsAnalysis() {
+    document.getElementById('vmstatSection').style.display = 'none';
+    document.getElementById('meminfoSection').style.display = 'none';
+    document.getElementById('topSection').style.display = 'none';
+    document.getElementById('singleChartSection').style.display = 'none';
+    document.getElementById('dataGridSection').style.display = 'none';
+    document.getElementById('oswpsAnalysisSection').style.display = 'block';
+
+    const highCpu = document.getElementById('highCpuList');
+    const highMem = document.getElementById('highMemList');
+    const forkBomb = document.getElementById('forkBombList');
+    const abnormalBody = document.getElementById('abnormalProcsBody');
+
+    const loadingHtml = '<li class="list-group-item text-center py-4 text-muted"><i class="fas fa-spinner fa-spin"></i> 正在分析诊断这 610 万行进程日志，请耐心稍候...</li>';
+    highCpu.innerHTML = loadingHtml;
+    highMem.innerHTML = loadingHtml;
+    forkBomb.innerHTML = loadingHtml;
+    abnormalBody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted"><i class="fas fa-spinner fa-spin"></i> 正在收集异常状态进程...</td></tr>';
+
+    const startTime = document.getElementById('chartStartTime').value;
+    const endTime = document.getElementById('chartEndTime').value;
+    let url = `/api/analysis/oswps?1=1`;
+    if (startTime) url += `&startTime=${encodeURIComponent(startTime)}`;
+    if (endTime) url += `&endTime=${encodeURIComponent(endTime)}`;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                renderOswpsAnalysis(data.data);
+            } else {
+                const errHtml = '<li class="list-group-item text-center py-4 text-danger">诊断分析失败: ' + escapeHtml(data.message) + '</li>';
+                highCpu.innerHTML = errHtml;
+                highMem.innerHTML = errHtml;
+                forkBomb.innerHTML = errHtml;
+                abnormalBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">分析失败</td></tr>';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            const errHtml = '<li class="list-group-item text-center py-4 text-danger">网络加载失败</li>';
+            highCpu.innerHTML = errHtml;
+            highMem.innerHTML = errHtml;
+            forkBomb.innerHTML = errHtml;
+            abnormalBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-4">网络加载失败</td></tr>';
+        });
+}
+
+function renderOswpsAnalysis(data) {
+    // 1. Update status cards
+    document.getElementById('dStateCountText').textContent = formatCount(data.dStateCount);
+    document.getElementById('zombieCountText').textContent = formatCount(data.zombieCount);
+    document.getElementById('snapshotCountText').textContent = data.totalSnapshots;
+
+    // 2. Render CPU list
+    const cpuList = document.getElementById('highCpuList');
+    cpuList.innerHTML = '';
+    if (!data.highCpuProcs || data.highCpuProcs.length === 0) {
+        cpuList.innerHTML = '<li class="list-group-item text-center text-muted py-3">无显著 CPU 占用记录</li>';
+    } else {
+        data.highCpuProcs.forEach((p, idx) => {
+            let html = '<li class="list-group-item d-flex justify-content-between align-items-center py-2">';
+            html += '  <div style="max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">';
+            html += '    <strong class="text-primary font-monospace">' + (idx + 1) + '. ' + escapeHtml(p.shortName) + '</strong>';
+            html += '    <span class="text-muted small d-block" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</span>';
+            html += '  </div>';
+            html += '  <div class="text-end">';
+            html += '    <span class="badge bg-danger small">峰值 ' + p.maxVal + '%</span>';
+            html += '    <span class="badge bg-secondary small d-block mt-1">均值 ' + p.avgVal + '%</span>';
+            html += '  </div>';
+            html += '</li>';
+            cpuList.innerHTML += html;
+        });
+    }
+
+    // 3. Render Memory list
+    const memList = document.getElementById('highMemList');
+    memList.innerHTML = '';
+    if (!data.highMemProcs || data.highMemProcs.length === 0) {
+        memList.innerHTML = '<li class="list-group-item text-center text-muted py-3">无显著内存占用记录</li>';
+    } else {
+        data.highMemProcs.forEach((p, idx) => {
+            let html = '<li class="list-group-item d-flex justify-content-between align-items-center py-2">';
+            html += '  <div style="max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">';
+            html += '    <strong class="text-success font-monospace">' + (idx + 1) + '. ' + escapeHtml(p.shortName) + '</strong>';
+            html += '    <span class="text-muted small d-block" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</span>';
+            html += '  </div>';
+            html += '  <div class="text-end">';
+            html += '    <span class="badge bg-success small">峰值 ' + p.maxVal + ' MB</span>';
+            html += '    <span class="badge bg-secondary small d-block mt-1">均值 ' + p.avgVal + ' MB</span>';
+            html += '  </div>';
+            html += '</li>';
+            memList.innerHTML += html;
+        });
+    }
+
+    // 4. Render Fork list
+    const forkList = document.getElementById('forkBombList');
+    forkList.innerHTML = '';
+    if (!data.forkBombProcs || data.forkBombProcs.length === 0) {
+        forkList.innerHTML = '<li class="list-group-item text-center text-muted py-3">无异常起停进程</li>';
+    } else {
+        data.forkBombProcs.forEach((p, idx) => {
+            let html = '<li class="list-group-item d-flex justify-content-between align-items-center py-2">';
+            html += '  <div style="max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">';
+            html += '    <strong class="text-warning font-monospace">' + (idx + 1) + '. ' + escapeHtml(p.shortName) + '</strong>';
+            html += '    <span class="text-muted small d-block" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</span>';
+            html += '  </div>';
+            html += '  <div class="text-end">';
+            html += '    <span class="badge bg-warning text-dark">PID 累积 ' + p.forkCount + ' 个</span>';
+            html += '  </div>';
+            html += '</li>';
+            forkList.innerHTML += html;
+        });
+    }
+
+    // 5. Render Abnormal State Procs (Z / D) Table
+    const abnormalBody = document.getElementById('abnormalProcsBody');
+    const badge = document.getElementById('abnormalCountBadge');
+    badge.textContent = `${data.abnormalProcs ? data.abnormalProcs.length : 0} 个进程`;
+
+    if (!data.abnormalProcs || data.abnormalProcs.length === 0) {
+        abnormalBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">暂无 Z/D 状态的卡死异常进程</td></tr>';
+        return;
+    }
+
+    let tableHtml = '';
+    data.abnormalProcs.forEach(p => {
+        const stateColor = p.state === 'D' ? 'danger' : 'warning';
+        const stateTitle = p.state === 'D' ? '卡死(不可中断睡眠)' : '僵尸状态';
+        
+        tableHtml += '<tr>';
+        tableHtml += `  <td><span class="fw-bold font-monospace">${p.pid}</span> <span class="text-muted">(${p.ppid})</span></td>`;
+        tableHtml += `  <td><span class="badge bg-${stateColor}" title="${stateTitle}">${p.state}</span></td>`;
+        tableHtml += `  <td><span class="fw-bold">${p.count} 次</span></td>`;
+        tableHtml += `  <td><div class="font-monospace" style="font-size:10px;">起: ${p.firstTimestamp}<br>止: ${p.lastTimestamp}</div></td>`;
+        tableHtml += `  <td><pre class="mb-0 font-monospace text-dark" style="white-space: pre-wrap; font-size:11px; padding:0; background:none; border:none; line-height:1.2; margin:0;">${escapeHtml(p.command)}</pre></td>`;
+        tableHtml += '</tr>';
+    });
+    abnormalBody.innerHTML = tableHtml;
+}
+
+function switchOswpsView(mode) {
+    if (mode === 'analysis') {
+        document.getElementById('tab-btn-rawdata').classList.remove('active');
+        document.getElementById('tab-btn-analysis').classList.add('active');
+        document.getElementById('pageTitle').innerHTML = '<i class="fas fa-chart-line"></i> ' + escapeHtml(TABLE_NAME) + ' - 智能分析看板';
+        loadOswpsAnalysis();
+    } else {
+        document.getElementById('tab-btn-analysis').classList.remove('active');
+        document.getElementById('tab-btn-rawdata').classList.add('active');
+        document.getElementById('pageTitle').innerHTML = '<i class="fas fa-chart-line"></i> ' + escapeHtml(TABLE_NAME) + ' - 数据明细';
+        document.getElementById('oswpsAnalysisSection').style.display = 'none';
+        loadDataGrid(1);
+    }
 }

@@ -109,10 +109,15 @@ func (s *Server) handleViewer(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+	mode := r.URL.Query().Get("mode")
+	if mode == "" {
+		mode = "chart"
+	}
 
 	data := map[string]interface{}{
 		"Table":     table,
 		"TableType": getTableType(table),
+		"Mode":      mode,
 	}
 	if err := s.tmpl.Execute(w, "web/templates/viewer.html", data); err != nil {
 		http.Error(w, err.Error(), 500)
@@ -216,6 +221,12 @@ func (s *Server) importArchiveData(archivePath string) (map[string]interface{}, 
 		subdirPath := filepath.Join(archivePath, entry.Name())
 
 		files := collectDatFiles(subdirPath)
+		if len(files) > 0 {
+			if err := db.EnsureTable(s.db, tableName); err != nil {
+				log.Printf("创建数据表失败: %s: %v", tableName, err)
+				continue
+			}
+		}
 		totalLines := 0
 		for _, f := range files {
 			host := parser.GetHostFromFilename(f)
@@ -287,8 +298,8 @@ func (s *Server) handleData(w http.ResponseWriter, r *http.Request) {
 	table := r.PathValue("table")
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	startTime := r.URL.Query().Get("startTime")
-	endTime := r.URL.Query().Get("endTime")
+	startTime := formatFilterTime(r.URL.Query().Get("startTime"), false)
+	endTime := formatFilterTime(r.URL.Query().Get("endTime"), true)
 
 	if page <= 0 {
 		page = 1
@@ -783,4 +794,38 @@ func getTableType(table string) string {
 		return "top"
 	}
 	return "generic"
+}
+
+func (s *Server) handleOswpsAnalysis(w http.ResponseWriter, r *http.Request) {
+	archivePath := s.findArchivePath()
+	startTime := formatFilterTime(r.URL.Query().Get("startTime"), false)
+	endTime := formatFilterTime(r.URL.Query().Get("endTime"), true)
+
+	cacheKey := fmt.Sprintf("oswps_analysis_%s_%s_%s", archivePath, startTime, endTime)
+	if cached, ok := s.cache.Get(cacheKey); ok {
+		jsonResponse(w, map[string]interface{}{"success": true, "data": cached})
+		return
+	}
+
+	analysis, err := db.AnalyzeOswps(s.db, startTime, endTime)
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	s.cache.Set(cacheKey, analysis)
+	jsonResponse(w, map[string]interface{}{"success": true, "data": analysis})
+}
+
+func formatFilterTime(t string, isEnd bool) string {
+	if t == "" {
+		return ""
+	}
+	t = strings.Replace(t, "T", " ", 1)
+	if len(t) == 16 { // YYYY-MM-DD HH:MM
+		if isEnd {
+			return t + ":59"
+		}
+		return t + ":00"
+	}
+	return t
 }

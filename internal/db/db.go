@@ -40,10 +40,6 @@ func Open(dbPath string) (*sql.DB, error) {
 // ImportFile imports a .dat, .dat.gz, or .zip file into the specified table.
 // Returns the number of lines imported.
 func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
-	if err := EnsureTable(db, tableName); err != nil {
-		return 0, err
-	}
-
 	var lines []string
 	ext := strings.ToLower(filepath.Ext(filePath))
 
@@ -79,18 +75,16 @@ func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("begin transaction: %w", err)
 	}
+	defer tx.Rollback()
 
 	insertSQL := fmt.Sprintf("INSERT INTO %s(host, timestamp, file, line_no, content) VALUES (?, ?, ?, ?, ?)", tableName)
 	stmt, err := tx.Prepare(insertSQL)
 	if err != nil {
-		tx.Rollback()
 		return 0, fmt.Errorf("prepare insert: %w", err)
 	}
 	defer stmt.Close()
 
 	lineNo := 0
-	batchCount := 0
-
 	for _, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
 		lineNo++
@@ -112,34 +106,12 @@ func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
 		}
 
 		if _, err := stmt.Exec(host, ts, filePath, lineNo, line); err != nil {
-			tx.Rollback()
 			return 0, fmt.Errorf("insert row: %w", err)
-		}
-
-		batchCount++
-		if batchCount >= 2000 {
-			if err := tx.Commit(); err != nil {
-				return 0, fmt.Errorf("commit batch: %w", err)
-			}
-			tx, err = db.Begin()
-			if err != nil {
-				return 0, fmt.Errorf("begin transaction: %w", err)
-			}
-			stmt, err = tx.Prepare(insertSQL)
-			if err != nil {
-				tx.Rollback()
-				return 0, fmt.Errorf("prepare insert: %w", err)
-			}
-			batchCount = 0
 		}
 	}
 
-	if batchCount > 0 {
-		if err := tx.Commit(); err != nil {
-			return 0, fmt.Errorf("commit final batch: %w", err)
-		}
-	} else {
-		tx.Rollback()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return lineNo, nil
@@ -176,15 +148,20 @@ func GetDataPaginated(db *sql.DB, table string, page, limit int, startTime, endT
 
 	var total int
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM %s", safeName)
+	var countArgs []interface{}
 	if startTime != "" && endTime != "" {
 		countSQL += " WHERE timestamp >= ? AND timestamp <= ?"
-		if err := db.QueryRow(countSQL, startTime, endTime).Scan(&total); err != nil {
-			return nil, 0, fmt.Errorf("count rows: %w", err)
-		}
-	} else {
-		if err := db.QueryRow(countSQL).Scan(&total); err != nil {
-			return nil, 0, fmt.Errorf("count rows: %w", err)
-		}
+		countArgs = append(countArgs, startTime, endTime)
+	} else if startTime != "" {
+		countSQL += " WHERE timestamp >= ?"
+		countArgs = append(countArgs, startTime)
+	} else if endTime != "" {
+		countSQL += " WHERE timestamp <= ?"
+		countArgs = append(countArgs, endTime)
+	}
+
+	if err := db.QueryRow(countSQL, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count rows: %w", err)
 	}
 
 	offset := (page - 1) * limit
@@ -193,6 +170,12 @@ func GetDataPaginated(db *sql.DB, table string, page, limit int, startTime, endT
 	if startTime != "" && endTime != "" {
 		query += " WHERE timestamp >= ? AND timestamp <= ?"
 		args = append(args, startTime, endTime)
+	} else if startTime != "" {
+		query += " WHERE timestamp >= ?"
+		args = append(args, startTime)
+	} else if endTime != "" {
+		query += " WHERE timestamp <= ?"
+		args = append(args, endTime)
 	}
 	query += " ORDER BY timestamp LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)

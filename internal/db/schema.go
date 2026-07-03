@@ -54,11 +54,8 @@ func DropAllTables(db *sql.DB) error {
 		}
 	}
 
-	// Vacuum to reclaim space
-	if _, err := db.Exec("VACUUM"); err != nil {
-		return fmt.Errorf("vacuum: %w", err)
-	}
-
+	// Vacuum to reclaim space - removed because it's too slow on large DBs during upload
+	// and SQLite will reuse free pages automatically during subsequent imports.
 	return nil
 }
 

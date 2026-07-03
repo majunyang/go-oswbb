@@ -50,7 +50,9 @@ function getTableType(table) {
         'oswvmstat': 'vmstat',
         'oswiostat': 'iostat',
         'oswifconfig': 'ifconfig',
-        'oswmpstat': 'mpstat'
+        'oswmpstat': 'mpstat',
+        'oswmeminfo': 'meminfo',
+        'oswtop': 'top'
     };
     for (const [key, type] of Object.entries(types)) {
         if (table.includes(key)) return type;
@@ -88,12 +90,13 @@ function loadSidebarNav() {
                     'ifconfig': 'nav-ifconfig-link',
                     'mpstat': 'nav-mpstat-link',
                     'meminfo': 'nav-meminfo-link',
-                    'top': 'nav-top-link'
+                    'top': 'nav-top-link',
+                    'ps': 'nav-ps-link'
                 };
 
                 for (const [type, navId] of Object.entries(navItems)) {
                     for (const tableName of Object.keys(tables)) {
-                        if (tableName.includes(type)) {
+                        if (tableName.includes('osw' + type)) {
                             const el = document.getElementById(navId);
                             if (el) {
                                 el.style.display = 'block';
