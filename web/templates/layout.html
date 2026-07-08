@@ -49,13 +49,27 @@
 
         <!-- Main Content -->
         <div id="mainContent" class="main-content flex-grow-1">
+            {{if .ArchiveMode}}
+            <!-- Archive-mode refresh bar (rendered server-side only when -archive is configured) -->
+            <div id="archiveRefreshBar" class="archive-refresh-bar">
+                <span class="arb-badge"><i class="fas fa-folder-open"></i> 归档模式</span>
+                <span class="arb-time">归档目录: {{.ArchivePath}}</span>
+                <button id="manualRefreshBtn" class="btn btn-sm btn-primary" type="button">
+                    <i class="fas fa-sync-alt"></i> 手动刷新
+                </button>
+                <label class="arb-auto">
+                    <input type="checkbox" id="autoRefreshChk"> 每 30 秒自动刷新
+                </label>
+                <span id="refreshStatus" class="arb-status"></span>
+            </div>
+            {{end}}
             {{template "content" .}}
         </div>
     </div>
 
     <script src="/static/js/vendor/bootstrap.bundle.min.js"></script>
     <script src="/static/js/vendor/echarts.min.js"></script>
-    <script src="/static/js/app.js?v=1.0.2"></script>
+    <script src="/static/js/app.js?v=1.0.3"></script>
     {{template "scripts" .}}
 </body>
 </html>

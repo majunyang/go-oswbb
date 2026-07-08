@@ -50,8 +50,13 @@ func main() {
 	// Create and start server
 	srv := web.NewServer(cfg, database, tmpl, staticFS)
 
+	// Auto-import data when an archive path is configured via -archive
+	if err := srv.ImportConfiguredArchive(); err != nil {
+		log.Printf("归档自动导入失败: %v", err)
+	}
+
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("OSWBBGraph Go server starting on http://localhost%s", addr)
+	log.Printf("OSWBBGraph Go server 已启动, 监听所有网卡 0.0.0.0%s (可通过 http://<本机IP>:%d 访问, 需确保防火墙放行该端口)", addr, cfg.Port)
 	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}

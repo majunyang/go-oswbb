@@ -27,6 +27,7 @@ func NewServer(cfg *config.Config, db *sql.DB, tmpl *TemplateManager, staticFS e
 		cache:    NewChartCache(),
 		staticFS: staticFS,
 	}
+	tmpl.SetArchiveInfo(cfg.ArchivePath != "", cfg.ArchivePath)
 	s.routes()
 	return s
 }
@@ -59,6 +60,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/chart/top/{metric}", s.handleTopChart)
 	s.mux.HandleFunc("GET /api/chart/types", s.handleChartTypes)
 	s.mux.HandleFunc("GET /api/archive-path", s.handleArchivePath)
+	s.mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	s.mux.HandleFunc("GET /api/analysis/oswps", s.handleOswpsAnalysis)
 }
 

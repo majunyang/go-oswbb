@@ -116,3 +116,71 @@ function loadSidebarNav() {
 
 // Initialize sidebar on page load
 document.addEventListener('DOMContentLoaded', loadSidebarNav);
+
+// ---- Archive-mode refresh (manual + auto every 30s). The bar is rendered
+// server-side only in -archive mode, so here we just wire up the controls. ----
+(function initArchiveRefresh() {
+    const bar = document.getElementById('archiveRefreshBar');
+    const manualBtn = document.getElementById('manualRefreshBtn');
+    const autoChk = document.getElementById('autoRefreshChk');
+    const statusEl = document.getElementById('refreshStatus');
+    if (!bar || !manualBtn || !autoChk) return; // not in archive mode
+
+    let timer = null;
+
+    function setStatus(msg, isError) {
+        if (!statusEl) return;
+        statusEl.textContent = msg || '';
+        statusEl.className = 'arb-status ' + (isError ? 'text-danger' : 'text-muted');
+    }
+
+    function doRefresh() {
+        setStatus('刷新中...');
+        manualBtn.disabled = true;
+        fetch('/api/refresh', { method: 'POST' })
+            .then(r => r.json())
+            .then(d => {
+                if (d && d.success) {
+                    // Reload so every page (sidebar, stats, charts) shows fresh data
+                    window.location.reload();
+                } else {
+                    setStatus('刷新失败: ' + ((d && d.message) || '未知错误'), true);
+                    manualBtn.disabled = false;
+                }
+            })
+            .catch(e => {
+                setStatus('刷新请求失败: ' + e, true);
+                manualBtn.disabled = false;
+            });
+    }
+
+    function startAuto(intervalMs) {
+        stopAuto();
+        timer = setInterval(doRefresh, intervalMs);
+        localStorage.setItem('oswbb_auto_refresh', String(intervalMs));
+    }
+
+    function stopAuto() {
+        if (timer) { clearInterval(timer); timer = null; }
+        localStorage.setItem('oswbb_auto_refresh', '0');
+    }
+
+    manualBtn.addEventListener('click', doRefresh);
+    autoChk.addEventListener('change', function () {
+        if (autoChk.checked) {
+            startAuto(30000);
+            setStatus('已开启自动刷新');
+        } else {
+            stopAuto();
+            setStatus('已关闭自动刷新');
+        }
+    });
+
+    // Restore the auto-refresh preference (survives the 30s reload)
+    const saved = parseInt(localStorage.getItem('oswbb_auto_refresh') || '0', 10);
+    if (saved > 0) {
+        autoChk.checked = true;
+        startAuto(saved);
+        setStatus('自动刷新已开启');
+    }
+})();

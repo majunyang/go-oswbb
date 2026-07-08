@@ -8,8 +8,18 @@ import (
 )
 
 type TemplateManager struct {
-	funcMap template.FuncMap
-	fs      embed.FS
+	funcMap     template.FuncMap
+	fs          embed.FS
+	archiveMode bool
+	archivePath string
+}
+
+// SetArchiveInfo lets the server tell templates whether -archive mode is active
+// and which directory is being served, so the refresh bar can be rendered
+// server-side instead of depending on a client-side fetch.
+func (tm *TemplateManager) SetArchiveInfo(mode bool, path string) {
+	tm.archiveMode = mode
+	tm.archivePath = path
 }
 
 func NewTemplateManager(templateFS embed.FS) *TemplateManager {
@@ -101,8 +111,22 @@ func (tm *TemplateManager) Execute(w io.Writer, pageTemplate string, data interf
 		return fmt.Errorf("parse page template %s: %w", pageTemplate, err)
 	}
 
+	// Inject archive-mode info so the layout can render the refresh bar server-side
+	renderData := data
+	switch d := data.(type) {
+	case map[string]interface{}:
+		d["ArchiveMode"] = tm.archiveMode
+		d["ArchivePath"] = tm.archivePath
+		renderData = d
+	case nil:
+		renderData = map[string]interface{}{
+			"ArchiveMode": tm.archiveMode,
+			"ArchivePath": tm.archivePath,
+		}
+	}
+
 	// Execute the layout, which calls {{template "content" .}} and {{template "scripts" .}}
-	return tmpl.ExecuteTemplate(w, "layout.html", data)
+	return tmpl.ExecuteTemplate(w, "layout.html", renderData)
 }
 
 func containsStr(s, substr string) bool {

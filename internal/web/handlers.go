@@ -206,6 +206,31 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ImportConfiguredArchive imports data from the archive path configured via the
+// -archive flag at startup, so the web UI has data to display without requiring
+// an upload through the web interface.
+func (s *Server) ImportConfiguredArchive() error {
+	if s.cfg.ArchivePath == "" {
+		return nil
+	}
+	if _, err := os.Stat(s.cfg.ArchivePath); err != nil {
+		return fmt.Errorf("配置的归档路径不存在: %s", s.cfg.ArchivePath)
+	}
+	// Resolve the actual OSWatcher archive root (may be nested under a hostname dir)
+	root := archive.FindArchivePath(s.cfg.ArchivePath)
+	log.Printf("从配置的归档路径自动导入数据: %s", root)
+
+	// Clear existing data before importing
+	if err := db.DropAllTables(s.db); err != nil {
+		log.Printf("清空数据表失败: %v", err)
+	}
+	if _, err := s.importArchiveData(root); err != nil {
+		return err
+	}
+	s.cache.Invalidate()
+	return nil
+}
+
 func (s *Server) importArchiveData(archivePath string) (map[string]interface{}, error) {
 	entries, err := os.ReadDir(archivePath)
 	if err != nil {
@@ -740,6 +765,31 @@ func (s *Server) handleArchivePath(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]interface{}{
 		"success": true,
 		"data":    map[string]interface{}{"archivePath": path},
+	})
+}
+
+// handleRefresh re-imports the configured archive directory on demand so the UI
+// can pick up newly written .dat files while running in -archive mode.
+func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "仅支持 POST 方法", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.cfg.ArchivePath == "" {
+		jsonError(w, "未配置归档路径(-archive),无法刷新。请改用 Web 上传方式导入数据。", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(s.cfg.ArchivePath); err != nil {
+		jsonError(w, "归档路径不存在: "+s.cfg.ArchivePath, http.StatusBadRequest)
+		return
+	}
+	if err := s.ImportConfiguredArchive(); err != nil {
+		jsonError(w, "刷新失败: "+err.Error(), 500)
+		return
+	}
+	jsonResponse(w, map[string]interface{}{
+		"success": true,
+		"message": "已重新导入归档数据",
 	})
 }
 
