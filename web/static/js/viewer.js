@@ -510,16 +510,15 @@ function loadEntityList(endpoint, entityKey, chartEndpoint, type) {
                 const oldContainer = document.getElementById('entityCheckboxes');
                 const container = oldContainer.cloneNode(false);
                 oldContainer.parentNode.replaceChild(container, oldContainer);
-                container.innerHTML = '';
 
-                entities.forEach((entity, i) => {
+                entities.forEach(entity => {
                     const label = document.createElement('label');
                     label.className = 'entity-checkbox';
-                    let isChecked = true;
-                    if (entityKey === 'cpus') {
-                        isChecked = (entity === 'all');
-                    }
-                    label.innerHTML = '<input type="checkbox" value="' + escapeHtml(entity) + '"' + (isChecked ? ' checked' : '') + '> ' + escapeHtml(entity);
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = entity;
+                    checkbox.checked = entityKey !== 'cpus' || entity === 'all';
+                    label.append(checkbox, document.createTextNode(' ' + entity));
                     container.appendChild(label);
                 });
 
@@ -830,6 +829,40 @@ function loadOswpsAnalysis() {
         });
 }
 
+function appendProcessSummary(list, process, index, {nameClass, badgeClass, value, average}) {
+    const item = document.createElement('li');
+    item.className = 'list-group-item d-flex justify-content-between align-items-center py-2';
+
+    const description = document.createElement('div');
+    description.style.cssText = 'max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+
+    const name = document.createElement('strong');
+    name.className = nameClass + ' font-monospace';
+    name.textContent = (index + 1) + '. ' + process.shortName;
+
+    const command = document.createElement('span');
+    command.className = 'text-muted small d-block';
+    command.title = process.command;
+    command.textContent = process.command;
+    description.append(name, command);
+
+    const details = document.createElement('div');
+    details.className = 'text-end';
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + badgeClass;
+    badge.textContent = value;
+    details.appendChild(badge);
+    if (average) {
+        const averageBadge = document.createElement('span');
+        averageBadge.className = 'badge bg-secondary small d-block mt-1';
+        averageBadge.textContent = average;
+        details.appendChild(averageBadge);
+    }
+
+    item.append(description, details);
+    list.appendChild(item);
+}
+
 function renderOswpsAnalysis(data) {
     // 1. Update status cards
     document.getElementById('dStateCountText').textContent = formatCount(data.dStateCount);
@@ -838,63 +871,48 @@ function renderOswpsAnalysis(data) {
 
     // 2. Render CPU list
     const cpuList = document.getElementById('highCpuList');
-    cpuList.innerHTML = '';
+    cpuList.replaceChildren();
     if (!data.highCpuProcs || data.highCpuProcs.length === 0) {
         cpuList.innerHTML = '<li class="list-group-item text-center text-muted py-3">无显著 CPU 占用记录</li>';
     } else {
         data.highCpuProcs.forEach((p, idx) => {
-            let html = '<li class="list-group-item d-flex justify-content-between align-items-center py-2">';
-            html += '  <div style="max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">';
-            html += '    <strong class="text-primary font-monospace">' + (idx + 1) + '. ' + escapeHtml(p.shortName) + '</strong>';
-            html += '    <span class="text-muted small d-block" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</span>';
-            html += '  </div>';
-            html += '  <div class="text-end">';
-            html += '    <span class="badge bg-danger small">峰值 ' + p.maxVal + '%</span>';
-            html += '    <span class="badge bg-secondary small d-block mt-1">均值 ' + p.avgVal + '%</span>';
-            html += '  </div>';
-            html += '</li>';
-            cpuList.innerHTML += html;
+            appendProcessSummary(cpuList, p, idx, {
+                nameClass: 'text-primary',
+                badgeClass: 'bg-danger small',
+                value: '峰值 ' + p.maxVal + '%',
+                average: '均值 ' + p.avgVal + '%'
+            });
         });
     }
 
     // 3. Render Memory list
     const memList = document.getElementById('highMemList');
-    memList.innerHTML = '';
+    memList.replaceChildren();
     if (!data.highMemProcs || data.highMemProcs.length === 0) {
         memList.innerHTML = '<li class="list-group-item text-center text-muted py-3">无显著内存占用记录</li>';
     } else {
         data.highMemProcs.forEach((p, idx) => {
-            let html = '<li class="list-group-item d-flex justify-content-between align-items-center py-2">';
-            html += '  <div style="max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">';
-            html += '    <strong class="text-success font-monospace">' + (idx + 1) + '. ' + escapeHtml(p.shortName) + '</strong>';
-            html += '    <span class="text-muted small d-block" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</span>';
-            html += '  </div>';
-            html += '  <div class="text-end">';
-            html += '    <span class="badge bg-success small">峰值 ' + p.maxVal + ' MB</span>';
-            html += '    <span class="badge bg-secondary small d-block mt-1">均值 ' + p.avgVal + ' MB</span>';
-            html += '  </div>';
-            html += '</li>';
-            memList.innerHTML += html;
+            appendProcessSummary(memList, p, idx, {
+                nameClass: 'text-success',
+                badgeClass: 'bg-success small',
+                value: '峰值 ' + p.maxVal + ' MB',
+                average: '均值 ' + p.avgVal + ' MB'
+            });
         });
     }
 
     // 4. Render Fork list
     const forkList = document.getElementById('forkBombList');
-    forkList.innerHTML = '';
+    forkList.replaceChildren();
     if (!data.forkBombProcs || data.forkBombProcs.length === 0) {
         forkList.innerHTML = '<li class="list-group-item text-center text-muted py-3">无异常起停进程</li>';
     } else {
         data.forkBombProcs.forEach((p, idx) => {
-            let html = '<li class="list-group-item d-flex justify-content-between align-items-center py-2">';
-            html += '  <div style="max-width: 75%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">';
-            html += '    <strong class="text-warning font-monospace">' + (idx + 1) + '. ' + escapeHtml(p.shortName) + '</strong>';
-            html += '    <span class="text-muted small d-block" title="' + escapeHtml(p.command) + '">' + escapeHtml(p.command) + '</span>';
-            html += '  </div>';
-            html += '  <div class="text-end">';
-            html += '    <span class="badge bg-warning text-dark">PID 累积 ' + p.forkCount + ' 个</span>';
-            html += '  </div>';
-            html += '</li>';
-            forkList.innerHTML += html;
+            appendProcessSummary(forkList, p, idx, {
+                nameClass: 'text-warning',
+                badgeClass: 'bg-warning text-dark',
+                value: 'PID 累积 ' + p.forkCount + ' 个'
+            });
         });
     }
 
@@ -917,7 +935,7 @@ function renderOswpsAnalysis(data) {
         tableHtml += `  <td><span class="fw-bold font-monospace">${p.pid}</span> <span class="text-muted">(${p.ppid})</span></td>`;
         tableHtml += `  <td><span class="badge bg-${stateColor}" title="${stateTitle}">${p.state}</span></td>`;
         tableHtml += `  <td><span class="fw-bold">${p.count} 次</span></td>`;
-        tableHtml += `  <td><div class="font-monospace" style="font-size:10px;">起: ${p.firstTimestamp}<br>止: ${p.lastTimestamp}</div></td>`;
+        tableHtml += `  <td><div class="font-monospace" style="font-size:10px;">起: ${escapeHtml(p.firstTimestamp)}<br>止: ${escapeHtml(p.lastTimestamp)}</div></td>`;
         tableHtml += `  <td><pre class="mb-0 font-monospace text-dark" style="white-space: pre-wrap; font-size:11px; padding:0; background:none; border:none; line-height:1.2; margin:0;">${escapeHtml(p.command)}</pre></td>`;
         tableHtml += '</tr>';
     });

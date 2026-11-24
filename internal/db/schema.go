@@ -4,11 +4,39 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
+// Imported table names contain only ASCII letters, digits, and underscores.
+const uploadStateName = "oswbb-upload-state"
+const uploadStateTable = `"` + uploadStateName + `"`
+
+const dataTablesQuery = `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '` + uploadStateName + `' COLLATE NOCASE`
+
+const uploadStateSchema = `CREATE TABLE IF NOT EXISTS ` + uploadStateTable + ` (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	archive_path TEXT NOT NULL
+)`
+
+// SetActiveUpload records the archive path relative to the configured upload directory.
+func SetActiveUpload(tx *sql.Tx, path string) error {
+	_, err := tx.Exec(`INSERT INTO `+uploadStateTable+` (id, archive_path) VALUES (1, ?)
+		ON CONFLICT (id) DO UPDATE SET archive_path = excluded.archive_path`, path)
+	return err
+}
+
+func GetActiveUpload(db *sql.DB) (string, error) {
+	var path string
+	err := db.QueryRow(`SELECT archive_path FROM ` + uploadStateTable + ` WHERE id = 1`).Scan(&path)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return path, err
+}
+
 // EnsureTable creates the table and timestamp index if they don't exist.
-func EnsureTable(db *sql.DB, tableName string) error {
+func EnsureTable(tx *sql.Tx, tableName string) error {
 	createSQL := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		host TEXT,
@@ -18,21 +46,21 @@ func EnsureTable(db *sql.DB, tableName string) error {
 		content TEXT
 	)`, tableName)
 
-	if _, err := db.Exec(createSQL); err != nil {
+	if _, err := tx.Exec(createSQL); err != nil {
 		return fmt.Errorf("create table %s: %w", tableName, err)
 	}
 
 	indexSQL := fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_%s_timestamp ON %s(timestamp)`, tableName, tableName)
-	if _, err := db.Exec(indexSQL); err != nil {
+	if _, err := tx.Exec(indexSQL); err != nil {
 		return fmt.Errorf("create index on %s: %w", tableName, err)
 	}
 
 	return nil
 }
 
-// DropAllTables drops all user-created tables (not sqlite internal tables).
-func DropAllTables(db *sql.DB) error {
-	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+// DropDataTables removes the existing archive tables within the import transaction.
+func DropDataTables(tx *sql.Tx) error {
+	rows, err := tx.Query(dataTablesQuery)
 	if err != nil {
 		return fmt.Errorf("query tables: %w", err)
 	}
@@ -46,16 +74,17 @@ func DropAllTables(db *sql.DB) error {
 		}
 		tables = append(tables, name)
 	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list archive tables: %w", err)
+	}
 
 	for _, table := range tables {
-		dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", table)
-		if _, err := db.Exec(dropSQL); err != nil {
+		dropSQL := `DROP TABLE IF EXISTS "` + strings.ReplaceAll(table, `"`, `""`) + `"`
+		if _, err := tx.Exec(dropSQL); err != nil {
 			return fmt.Errorf("drop table %s: %w", table, err)
 		}
 	}
 
-	// Vacuum to reclaim space - removed because it's too slow on large DBs during upload
-	// and SQLite will reuse free pages automatically during subsequent imports.
 	return nil
 }
 
@@ -69,7 +98,7 @@ func CleanupOldData(db *sql.DB, retentionDays int) (int, error) {
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays).Format("2006-01-02 15:04:05")
 	log.Printf("清理 %d 天前的数据 (截止时间: %s)", retentionDays, cutoffTime)
 
-	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	rows, err := db.Query(dataTablesQuery)
 	if err != nil {
 		return 0, fmt.Errorf("query tables: %w", err)
 	}

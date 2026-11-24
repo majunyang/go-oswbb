@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"path/filepath"
 )
 
 type TemplateManager struct {
@@ -127,6 +128,17 @@ func (tm *TemplateManager) Execute(w io.Writer, pageTemplate string, data interf
 
 	// Execute the layout, which calls {{template "content" .}} and {{template "scripts" .}}
 	return tmpl.ExecuteTemplate(w, "layout.html", renderData)
+}
+
+// RenderRaw renders a single template file without the layout wrapper.
+// Used for the standalone login page.
+func (tm *TemplateManager) RenderRaw(w io.Writer, name string, data interface{}) error {
+	tmpl, err := template.New("").Funcs(tm.funcMap).ParseFS(tm.fs, name)
+	if err != nil {
+		return fmt.Errorf("parse %s: %w", name, err)
+	}
+	// ParseFS registers the template under its base file name; execute by that name.
+	return tmpl.ExecuteTemplate(w, filepath.Base(name), data)
 }
 
 func containsStr(s, substr string) bool {

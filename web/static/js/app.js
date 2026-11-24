@@ -184,3 +184,14 @@ document.addEventListener('DOMContentLoaded', loadSidebarNav);
         setStatus('自动刷新已开启');
     }
 })();
+
+// Logout button: clear the session and return to the login page.
+(function initLogout() {
+    const btn = document.getElementById('logoutBtn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+        fetch('/api/logout', { method: 'POST' })
+            .catch(() => {})
+            .finally(() => { window.location.href = '/login'; });
+    });
+})();

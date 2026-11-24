@@ -33,13 +33,16 @@ func Open(dbPath string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("set busy timeout: %w", err)
 	}
+	if _, err := db.Exec(uploadStateSchema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("create upload state table: %w", err)
+	}
 
 	return db, nil
 }
 
-// ImportFile imports a .dat, .dat.gz, or .zip file into the specified table.
-// Returns the number of lines imported.
-func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
+// ImportFile adds log rows to the archive transaction and returns the number inserted.
+func ImportFile(tx *sql.Tx, tableName, filePath, host string) (int, error) {
 	var lines []string
 	ext := strings.ToLower(filepath.Ext(filePath))
 
@@ -71,12 +74,6 @@ func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
 	var currentTs string
 	fallbackTs := parser.ParseTimestampFromFilename(filePath)
 
-	tx, err := db.Begin()
-	if err != nil {
-		return 0, fmt.Errorf("begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
 	insertSQL := fmt.Sprintf("INSERT INTO %s(host, timestamp, file, line_no, content) VALUES (?, ?, ?, ?, ?)", tableName)
 	stmt, err := tx.Prepare(insertSQL)
 	if err != nil {
@@ -84,10 +81,9 @@ func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
 	}
 	defer stmt.Close()
 
-	lineNo := 0
-	for _, rawLine := range lines {
+	inserted := 0
+	for i, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
-		lineNo++
 		if line == "" {
 			continue
 		}
@@ -105,21 +101,18 @@ func ImportFile(db *sql.DB, tableName, filePath, host string) (int, error) {
 			ts = fallbackTs
 		}
 
-		if _, err := stmt.Exec(host, ts, filePath, lineNo, line); err != nil {
+		if _, err := stmt.Exec(host, ts, filePath, i+1, line); err != nil {
 			return 0, fmt.Errorf("insert row: %w", err)
 		}
+		inserted++
 	}
 
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit transaction: %w", err)
-	}
-
-	return lineNo, nil
+	return inserted, nil
 }
 
-// GetTableStats returns row counts for all tables in the database.
+// GetTableStats returns row counts for the imported archive tables.
 func GetTableStats(db *sql.DB) (map[string]int, error) {
-	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	rows, err := db.Query(dataTablesQuery)
 	if err != nil {
 		return nil, fmt.Errorf("query tables: %w", err)
 	}

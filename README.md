@@ -31,49 +31,75 @@ go build -o bin/go-oswbb .
 
 ### 启动方式
 
-#### 方式一：上传归档文件
+启动前配置管理员密码。默认用户名为 `admin`，密码通过 `OSWBB_ADMIN_PASS` 或 `-admin-pass` 设置。空密码和旧默认密码 `admin` 会导致启动失败。
 
-```bash
-go-oswbb.exe
-# 访问 http://localhost:3001 上传 OSWatcher 归档文件
+以下本机示例使用 PowerShell 7。先在当前终端输入密码。
+
+```powershell
+$env:OSWBB_ADMIN_PASS = Read-Host -Prompt '管理员密码' -MaskInput
 ```
 
-#### 方式二：指定归档目录
+#### 本机上传归档文件
 
-```bash
-go-oswbb.exe -archive /path/to/oswbb/archive
-# 直接访问 http://localhost:3001 查看图表
+```powershell
+.\go-oswbb.exe
 ```
+
+打开 `http://127.0.0.1:3001`，登录后上传 OSWatcher 归档。
+
+#### 本机读取已解压的归档目录
+
+```powershell
+.\go-oswbb.exe -archive 'D:\oswbb\archive'
+```
+
+#### 通过 HTTPS 提供远程访问
+
+默认监听 `127.0.0.1`。HTTP 仅支持回环 IP。监听其他地址时需要同时提供 PEM 证书和私钥，HTTPS 会话 Cookie 会设置 `Secure`。
+
+```powershell
+.\go-oswbb.exe -bind 0.0.0.0 -port 8443 -tls-cert '.\certs\server.pem' -tls-key '.\certs\server-key.pem'
+```
+
+使用证书对应的主机名和 `8443` 端口访问 HTTPS 页面。
 
 ## 命令行参数
 
 | 参数 | 环境变量 | 默认值 | 说明 |
 |------|---------|--------|------|
+| `-bind` | `OSWBB_BIND` | `127.0.0.1` | 监听地址，非回环地址需要 HTTPS |
 | `-port` | `OSWBB_PORT` | `3001` | 服务器端口 |
 | `-data-dir` | `OSWBB_DATA_DIR` | `./data` | 数据目录 |
 | `-upload-dir` | `OSWBB_UPLOAD_DIR` | `./uploads` | 上传目录 |
 | `-db-path` | - | `./data/oswbb.db` | SQLite 数据库路径 |
 | `-archive` | `OSWBB_ARCHIVE` | - | 预解压的归档目录路径 |
 | `-retention-days` | `OSWBB_RETENTION_DAYS` | `3` | 数据保留天数（0=不清理） |
+| `-admin-user` | `OSWBB_ADMIN_USER` | `admin` | 管理员用户名 |
+| `-admin-pass` | `OSWBB_ADMIN_PASS` | 无 | 必须配置的管理员密码 |
+| `-tls-cert` | `OSWBB_TLS_CERT` | 无 | HTTPS 证书文件，PEM 格式 |
+| `-tls-key` | `OSWBB_TLS_KEY` | 无 | HTTPS 私钥文件，PEM 格式 |
 
 ### 使用示例
 
-```bash
-# 基本启动
-go-oswbb.exe
-
+```powershell
 # 指定端口和归档目录
-go-oswbb.exe -port 8080 -archive /home/oracle/oswbb/archive
+.\go-oswbb.exe -port 8080 -archive 'D:\oswbb\archive'
 
 # 使用环境变量
-set OSWBB_PORT=8080
-set OSWBB_ARCHIVE=/path/to/archive
-set OSWBB_RETENTION_DAYS=7
-go-oswbb.exe
+$env:OSWBB_PORT = '8080'
+$env:OSWBB_ARCHIVE = 'D:\oswbb\archive'
+$env:OSWBB_RETENTION_DAYS = '7'
+.\go-oswbb.exe
 
 # 不清理旧数据
-go-oswbb.exe -archive /path/to/archive -retention-days 0
+.\go-oswbb.exe -archive 'D:\oswbb\archive' -retention-days 0
 ```
+
+### 归档导入与显示
+
+Web 上传、启动导入和手动刷新都使用 SQLite 事务。归档至少要有一条可导入记录，且所有待导入文件都写入成功，才会替换旧数据。空归档或读写失败会报错并回滚。
+
+上传成功时，图表来源与 SQLite 数据一起切换。上传失败时保留上一次成功的图表来源并清理本次上传目录。界面将归档中的设备名、接口名和进程命令行按文本显示。
 
 ## 支持的数据类型
 

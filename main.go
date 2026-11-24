@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"embed"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +21,9 @@ var staticFS embed.FS
 
 func main() {
 	cfg := config.Parse()
+	if err := cfg.Validate(); err != nil {
+		log.Fatal(err)
+	}
 
 	// Ensure directories exist
 	os.MkdirAll(cfg.DataDir, 0755)
@@ -51,13 +54,20 @@ func main() {
 	srv := web.NewServer(cfg, database, tmpl, staticFS)
 
 	// Auto-import data when an archive path is configured via -archive
-	if err := srv.ImportConfiguredArchive(); err != nil {
+	if err := srv.ImportConfiguredArchive(context.Background()); err != nil {
 		log.Printf("归档自动导入失败: %v", err)
 	}
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("OSWBBGraph Go server 已启动, 监听所有网卡 0.0.0.0%s (可通过 http://<本机IP>:%d 访问, 需确保防火墙放行该端口)", addr, cfg.Port)
-	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
+	httpServer := &http.Server{Addr: cfg.ListenAddress(), Handler: srv.Handler()}
+	if cfg.TLSCert != "" {
+		log.Printf("OSWBBGraph HTTPS 监听 %s", httpServer.Addr)
+		if err := httpServer.ListenAndServeTLS(cfg.TLSCert, cfg.TLSKey); err != nil {
+			log.Fatalf("Server failed: %v", err)
+		}
+		return
+	}
+	log.Printf("OSWBBGraph HTTP 监听 %s", httpServer.Addr)
+	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

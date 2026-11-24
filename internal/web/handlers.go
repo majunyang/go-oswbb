@@ -1,7 +1,12 @@
 package web
 
 import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,13 +17,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"go-oswbb/internal/archive"
 	"go-oswbb/internal/db"
 	"go-oswbb/internal/model"
 	"go-oswbb/internal/parser"
 )
+
+// New uploads are visible to readers only after the database records their path.
+const uploadDirPrefix = ".oswbb-upload-"
 
 // ChartCache provides thread-safe caching for parsed chart data.
 type ChartCache struct {
@@ -53,8 +60,7 @@ func (c *ChartCache) Invalidate() {
 	c.data = make(map[string]interface{})
 }
 
-// findArchivePath finds the most recent extracted archive directory.
-// If ArchivePath is configured, use it directly instead of scanning uploads.
+// findArchivePath resolves the configured, committed, or legacy archive directory.
 func (s *Server) findArchivePath() string {
 	// Use configured archive path if specified
 	if s.cfg.ArchivePath != "" {
@@ -64,7 +70,24 @@ func (s *Server) findArchivePath() string {
 		log.Printf("配置的归档路径不存在: %s", s.cfg.ArchivePath)
 	}
 
-	// Otherwise scan uploads directory
+	activeUpload, err := db.GetActiveUpload(s.db)
+	if err != nil {
+		log.Printf("读取已导入归档路径失败: %v", err)
+		return ""
+	}
+	if activeUpload != "" {
+		if !filepath.IsLocal(activeUpload) {
+			log.Printf("已导入归档路径无效: %s", activeUpload)
+			return ""
+		}
+		path := filepath.Join(s.cfg.UploadDir, activeUpload)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path
+		}
+		return ""
+	}
+
+	// Uploads created before the state table used timestamp-named directories.
 	entries, err := os.ReadDir(s.cfg.UploadDir)
 	if err != nil {
 		return ""
@@ -73,7 +96,7 @@ func (s *Server) findArchivePath() string {
 	// Sort by name (timestamp) descending
 	var dirs []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), uploadDirPrefix) {
 			dirs = append(dirs, e.Name())
 		}
 	}
@@ -148,10 +171,19 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save uploaded file
-	timestamp := time.Now().Format("20060102150405")
-	uploadPath := filepath.Join(s.cfg.UploadDir, timestamp)
-	os.MkdirAll(uploadPath, 0755)
+	uploadPath, err := os.MkdirTemp(s.cfg.UploadDir, uploadDirPrefix)
+	if err != nil {
+		jsonError(w, "创建上传目录失败: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	imported := false
+	defer func() {
+		if !imported {
+			if err := archive.CleanupDir(uploadPath); err != nil {
+				log.Printf("清理未完成的上传失败: %v", err)
+			}
+		}
+	}()
 
 	destPath := filepath.Join(uploadPath, header.Filename)
 	dest, err := os.Create(destPath)
@@ -159,9 +191,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "保存文件失败: "+err.Error(), 500)
 		return
 	}
-	defer dest.Close()
-
-	if _, err := io.Copy(dest, file); err != nil {
+	_, copyErr := io.Copy(dest, file)
+	if err := errors.Join(copyErr, dest.Close()); err != nil {
 		jsonError(w, "写入文件失败: "+err.Error(), 500)
 		return
 	}
@@ -175,23 +206,21 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("解压完成, archive路径: %s", archivePath)
 
-	// Clear existing data before importing
-	log.Printf("清空现有数据表...")
-	if err := db.DropAllTables(s.db); err != nil {
-		log.Printf("清空数据表失败: %v", err)
+	activeUpload, err := filepath.Rel(s.cfg.UploadDir, archivePath)
+	if err != nil {
+		jsonError(w, "读取上传归档路径失败: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	// Import to SQLite
 	log.Printf("开始导入到SQLite: %s", s.cfg.DBPath)
-	summary, err := s.importArchiveData(archivePath)
+	summary, err := s.importArchiveData(r.Context(), archivePath, activeUpload)
 	if err != nil {
 		jsonError(w, "导入失败: "+err.Error(), 500)
 		return
 	}
+	imported = true
 	log.Printf("导入完成")
-
-	// Invalidate cache
-	s.cache.Invalidate()
 
 	jsonResponse(w, map[string]interface{}{
 		"success": true,
@@ -209,7 +238,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 // ImportConfiguredArchive imports data from the archive path configured via the
 // -archive flag at startup, so the web UI has data to display without requiring
 // an upload through the web interface.
-func (s *Server) ImportConfiguredArchive() error {
+func (s *Server) ImportConfiguredArchive(ctx context.Context) error {
 	if s.cfg.ArchivePath == "" {
 		return nil
 	}
@@ -220,24 +249,31 @@ func (s *Server) ImportConfiguredArchive() error {
 	root := archive.FindArchivePath(s.cfg.ArchivePath)
 	log.Printf("从配置的归档路径自动导入数据: %s", root)
 
-	// Clear existing data before importing
-	if err := db.DropAllTables(s.db); err != nil {
-		log.Printf("清空数据表失败: %v", err)
-	}
-	if _, err := s.importArchiveData(root); err != nil {
-		return err
-	}
-	s.cache.Invalidate()
-	return nil
+	_, err := s.importArchiveData(ctx, root, "")
+	return err
 }
 
-func (s *Server) importArchiveData(archivePath string) (map[string]interface{}, error) {
+func (s *Server) importArchiveData(ctx context.Context, archivePath, activeUpload string) (map[string]interface{}, error) {
 	entries, err := os.ReadDir(archivePath)
 	if err != nil {
 		return nil, err
 	}
 
+	s.importMu.Lock()
+	defer s.importMu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("开始归档导入事务: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := db.DropDataTables(tx); err != nil {
+		return nil, fmt.Errorf("替换旧归档表: %w", err)
+	}
+
 	summary := make(map[string]interface{})
+	importedRows := 0
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -245,23 +281,25 @@ func (s *Server) importArchiveData(archivePath string) (map[string]interface{}, 
 		tableName := parser.SanitizeTableName(entry.Name())
 		subdirPath := filepath.Join(archivePath, entry.Name())
 
-		files := collectDatFiles(subdirPath)
+		files, err := collectDatFiles(subdirPath)
+		if err != nil {
+			return nil, fmt.Errorf("读取归档目录 %s: %w", subdirPath, err)
+		}
 		if len(files) > 0 {
-			if err := db.EnsureTable(s.db, tableName); err != nil {
-				log.Printf("创建数据表失败: %s: %v", tableName, err)
-				continue
+			if err := db.EnsureTable(tx, tableName); err != nil {
+				return nil, err
 			}
 		}
 		totalLines := 0
 		for _, f := range files {
 			host := parser.GetHostFromFilename(f)
-			lines, err := db.ImportFile(s.db, tableName, f, host)
+			lines, err := db.ImportFile(tx, tableName, f, host)
 			if err != nil {
-				log.Printf("导入文件失败: %s: %v", f, err)
-				continue
+				return nil, fmt.Errorf("导入文件 %s: %w", f, err)
 			}
 			totalLines += lines
 		}
+		importedRows += totalLines
 
 		summary[entry.Name()] = map[string]interface{}{
 			"table": tableName,
@@ -269,15 +307,27 @@ func (s *Server) importArchiveData(archivePath string) (map[string]interface{}, 
 			"lines": totalLines,
 		}
 	}
+	if importedRows == 0 {
+		return nil, errors.New("归档没有可导入的记录")
+	}
+	if activeUpload != "" {
+		if err := db.SetActiveUpload(tx, activeUpload); err != nil {
+			return nil, fmt.Errorf("记录已导入归档路径: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("提交归档导入: %w", err)
+	}
+	s.cache.Invalidate()
 
 	return summary, nil
 }
 
-func collectDatFiles(dirPath string) []string {
+func collectDatFiles(dirPath string) ([]string, error) {
 	var files []string
 	entries, err := os.ReadDir(dirPath)
 	if err != nil {
-		return files
+		return nil, err
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -288,7 +338,7 @@ func collectDatFiles(dirPath string) []string {
 		}
 	}
 	sort.Strings(files)
-	return files
+	return files, nil
 }
 
 func (s *Server) handleStatistics(w http.ResponseWriter, r *http.Request) {
@@ -783,7 +833,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "归档路径不存在: "+s.cfg.ArchivePath, http.StatusBadRequest)
 		return
 	}
-	if err := s.ImportConfiguredArchive(); err != nil {
+	if err := s.ImportConfiguredArchive(r.Context()); err != nil {
 		jsonError(w, "刷新失败: "+err.Error(), 500)
 		return
 	}
@@ -807,6 +857,73 @@ func jsonError(w http.ResponseWriter, message string, code int) {
 		"success": false,
 		"message": message,
 	})
+}
+
+// hashCreds returns a stable hash of "user:pass" for constant-time comparison.
+func hashCreds(user, pass string) string {
+	sum := sha256.Sum256([]byte(user + ":" + pass))
+	return hex.EncodeToString(sum[:])
+}
+
+// handleLoginPage renders the standalone login page.
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.tmpl.RenderRaw(w, "web/templates/login.html", nil); err != nil {
+		log.Printf("渲染登录页失败: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// handleLoginAPI validates credentials and issues a session cookie.
+func (s *Server) handleLoginAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "仅支持 POST 方法", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		User string `json:"user"`
+		Pass string `json:"pass"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "请求体解析失败", http.StatusBadRequest)
+		return
+	}
+	want := hashCreds(req.User, req.Pass)
+	if subtle.ConstantTimeCompare([]byte(want), []byte(s.adminHash)) != 1 {
+		jsonError(w, "用户名或密码错误", http.StatusUnauthorized)
+		return
+	}
+	tok := s.sessions.create()
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    tok,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(s.sessions.timeout.Seconds()),
+	})
+	jsonResponse(w, map[string]interface{}{"success": true})
+}
+
+// handleLogoutAPI clears the session cookie and invalidates the token.
+func (s *Server) handleLogoutAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonError(w, "仅支持 POST 方法", http.StatusMethodNotAllowed)
+		return
+	}
+	if c, err := r.Cookie(sessionCookieName); err == nil {
+		s.sessions.remove(c.Value)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   -1,
+	})
+	jsonResponse(w, map[string]interface{}{"success": true})
 }
 
 func parseCommaSeparated(s string) []string {

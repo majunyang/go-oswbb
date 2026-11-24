@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSWBBGraph - 登录</title>
+    <link href="/static/css/vendor/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/fontawesome.min.css" rel="stylesheet">
+    <link href="/static/css/style.css" rel="stylesheet">
+</head>
+<body class="login-page">
+    <div class="login-card">
+        <div class="login-logo"><i class="fas fa-chart-line"></i> OSWBBGraph</div>
+        <p class="text-muted text-center">请输入管理员凭据以继续</p>
+        <div id="loginErr" class="alert alert-danger d-none"></div>
+        <form id="loginForm" autocomplete="off">
+            <div class="mb-3">
+                <label for="user" class="form-label">用户名</label>
+                <input type="text" class="form-control" id="user" name="user" required autofocus>
+            </div>
+            <div class="mb-3">
+                <label for="pass" class="form-label">密码</label>
+                <input type="password" class="form-control" id="pass" name="pass" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100" id="loginBtn">
+                <i class="fas fa-sign-in-alt"></i> 登录
+            </button>
+        </form>
+    </div>
+    <script src="/static/js/login.js?v=1.0.0"></script>
+</body>
+</html>
