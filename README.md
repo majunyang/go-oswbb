@@ -253,8 +253,8 @@ archive/
 
 ## 技术栈
 
-- **后端**: Go 1.22+
-- **数据库**: SQLite (modernc.org/sqlite, 纯Go实现)
+- **后端**使用 Go `1.25.5` 或更高版本
+- **数据库**使用 SQLite（`modernc.org/sqlite v1.53.0`，纯 Go 实现）
 - **前端**: Bootstrap 5.3, ECharts 5, Font Awesome 6
 - **图表**: ECharts (支持缩放、筛选、导出)
 
